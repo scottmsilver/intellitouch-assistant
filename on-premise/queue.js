@@ -104,6 +104,7 @@ function setSetPoint(instance, id, setPointFarenheit) {
 var SPA_ID = 2;
 var SPA_FEATURE_ID = 1;
 var JETS_ID = 4;
+const USER_ID = '123';
 
 function celsiusToFarenheit(celsius) {
   return Math.round(9 / 5 * celsius + 32);
@@ -277,6 +278,61 @@ function ExecuteOnDeviceLocally(axiosInstance, deviceId, execution) {
   return promise;
 }
 
+async function handleSync(body) {
+  logger.info(`onSync() ${JSON.stringify(body)}`);
+
+  return {
+    requestId: body.requestId,
+    payload: {
+      agentUserId: USER_ID,
+      devices: [{
+        id: 'washer',
+        type: 'action.devices.types.WATERHEATER',
+        traits: [
+          'action.devices.traits.OnOff',
+          'action.devices.traits.Toggles',
+          'action.devices.traits.TemperatureSetting'
+        ],
+        name: {
+          defaultNames: ['My Spa'],
+          name: 'Spa',
+          // First one in list is name that Assistant will choose..
+          nicknames: ['Spa', 'Jacuzzi'],
+        },
+        deviceInfo: {
+          manufacturer: 'Acme Co',
+          model: 'acme-washer',
+          hwVersion: '1.0',
+          swVersion: '1.0.1',
+        },
+
+        willReportState: true,
+        attributes: {
+          availableToggles: [{
+            name: 'Jets',
+            name_values: [{
+              name_synonym: ['jets', 'bubbles', 'farts'],
+              lang: 'en',
+            }]
+          }],
+          availableThermostatModes: [
+            "off",
+            "heat",
+            "on"
+          ],
+          // 40 F to 104F
+          thermostatTemperatureUnit: "F",
+          thermostatTemperatureRange: {
+            minThresholdCelsius: 5,
+            maxThresholdCelsius: 40
+          }
+        },
+      }],
+    },
+  };
+}
+
+
 async function handleExecute(body) {
   const {
     requestId
@@ -334,6 +390,7 @@ async function HandleIntent(requestPayload) {
       responseBody = await handleQuery(requestBody);
       break;
     case 'SYNC':
+      responseBody = await handleSync(requestBody);
       break;
     case 'EXECUTE':
       responseBody = await handleExecute(requestBody);
@@ -389,7 +446,7 @@ function getConfig(instance) {
 // that what the database already contains.
 async function updateOnlyIfChanged(ref, updates) {
   // Fetch the data under ref.
-  let currentSnapshot =  await ref.once("value");
+  let currentSnapshot = await ref.once("value");
   let current = currentSnapshot.val();
 
   // If updates is not a subset of current then write.
@@ -403,7 +460,6 @@ function farenheitToCelsius(tempF) {
   return Math.round((tempF - 32.0) * 5.0 / 9.0);
 }
 
-const USER_ID = '123';
 
 async function reportState(deviceId) {
   logger.info("Reporting state for %o", deviceId)
