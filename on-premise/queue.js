@@ -1,18 +1,8 @@
-/**
- * Copyright 2016 Google Inc. All Rights Reserved.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// queue.js
+//
+// Currently an insanely large file that processes requests made by the
+// Google Assistant and turns them, when appropriate, into requests
+// to the nodejs-poolController webservice here https://github.com/tagyoureit/nodejs-poolController.
 'use strict';
 
 const firebase = require('firebase-admin');
@@ -448,30 +438,7 @@ async function reportState(deviceId) {
     });
 
 }
-/*
-// Turning on
-// Note how isOn is false, but heatmode.val = 1
-// isOn is an indicator of whether the heater (body) is really on
-// or not. The typical sequence will be to turn the heatMode ON
-// And then then isOn will move from false to true when the Heater.
-// is actually on.
-// This means for us that we want to record "on" for the device whether
-// we intend for it be on.
-{
-  "id": 2,
-  "isOn": false,
-  "heatMode": {
-    "val": 1,
-    "name": "heater",
-    "desc": "Heater"
-  },
-  "name": "Spa",
-  "circuit": 1,
-  "setPoint": 95,
-  "temp": 95
-}
 
-*/
 async function updateHeater(deviceId, setPoint, currentTemperature, intendedToBeOn, actuallyHeating) {
   await updateOnlyIfChanged(db.ref(`/devices/${deviceId}`), {
     thermostatTemperatureSetpoint: farenheitToCelsius(setPoint),

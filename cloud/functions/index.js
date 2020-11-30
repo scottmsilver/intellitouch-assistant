@@ -165,11 +165,6 @@ app.onSync((body) => {
   };
 });
 
-
-function farenheitToCelsius(tempF) {
-  return Math.round((tempF - 32.0) * 5.0 / 9.0);
-}
-
 async function handleIntent(intentName, body) {
   functions.logger.info(`${intentName} ${JSON.stringify(body)}`);
   let response = {}
