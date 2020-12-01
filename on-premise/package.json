@@ -6,7 +6,8 @@
   "author": "nivco@google.com",
   "license": "Apache License Version 2.0",
   "scripts": {
-    "compile": "tsc && cp src/service-account.json built"
+    "compile": "tsc && cp  src/service-account.json built",
+    "start": "node built/queue.js  | pino-pretty -c -t"
   },
   "dependencies": {
     "axios": "^0.21.0",
