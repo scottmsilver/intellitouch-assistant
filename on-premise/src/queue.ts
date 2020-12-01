@@ -1,3 +1,19 @@
+/**
+ * Copyright 2020 Scott M. Silver. All Rights Reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 // queue.js
 //
 // Currently an insanely large file that processes requests made by the
@@ -5,12 +21,11 @@
 // to the nodejs-poolController webservice here https://github.com/tagyoureit/nodejs-poolController.
 'use strict';
 
-const firebase = require('firebase-admin');
+import firebase from 'firebase-admin';
 const axios = require('axios').default;
 const logger = require('pino')()
-const {
-  google
-} = require('googleapis');
+import { google } from 'googleapis';
+
 // Initialize the app with a service account, granting admin privileges
 /** @type {any} */
 const serviceAccount = require('./service-account.json');
@@ -50,8 +65,16 @@ var Queue = require('firebase-queue');
   },
   requestId:
 */
-async function handleQuery(body) {
-  const response = {
+async function handleQuery(body: any) {
+
+  interface QueryResult {
+    requestId: string;
+    payload: {
+      devices: any;
+    }
+  };
+
+  const response: QueryResult = {
     requestId: body.requestId,
     payload: {
       devices: {}
@@ -60,14 +83,14 @@ async function handleQuery(body) {
 
   const intent = body.inputs[0];
   for (const device of intent.payload.devices) {
-    let val = {}
+    let val : any = {}
 
-    await db.ref(`/devices/${device.id}`).once('value').then((snapshot) => {
+    await db.ref(`/devices/${device.id}`).once('value').then((snapshot: { val: () => {}; }) => {
         val = snapshot.val();
         logger.info(`Database state: ${JSON.stringify(val)}`);
         val["status"] = "SUCCESS";
       })
-      .catch((error) => {
+      .catch((error: any) => {
         logger.info(`Got error ${error}`);
         val["status"] = "ERROR";
       })
@@ -78,14 +101,14 @@ async function handleQuery(body) {
   return response;
 }
 
-function setHeatMode(instance, id, on) {
+function setHeatMode(instance: any, id: number, on:boolean) {
   return instance.put('/state/body/heatMode', {
     id: id,
     mode: on ? 1 : 0
   });
 }
 
-function toggleFeature(instance, id, on) {
+function toggleFeature(instance: any, id: number, on:boolean) {
   return instance.put('/state/circuit/setState', {
     id: id,
     state: on
@@ -93,7 +116,7 @@ function toggleFeature(instance, id, on) {
 }
 
 //  /state/body/setPoint {"id":2,"setPoint":102}
-function setSetPoint(instance, id, setPointFarenheit) {
+function setSetPoint(instance: any, id: number, setPointFarenheit:number) {
   return instance.put('/state/body/setPoint', {
     id: id,
     setPoint: setPointFarenheit
@@ -106,11 +129,11 @@ var SPA_FEATURE_ID = 1;
 var JETS_ID = 4;
 const USER_ID = '123';
 
-function celsiusToFarenheit(celsius) {
+function celsiusToFarenheit(celsius: number) {
   return Math.round(9 / 5 * celsius + 32);
 }
 
-function farenheitToCelsius(tempF) {
+function farenheitToCelsius(tempF: number) {
   return Math.round((tempF - 32.0) * 5.0 / 9.0);
 }
 
@@ -119,7 +142,7 @@ const axiosInstance = axios.create({
   timeout: 10000,
 });
 
-function ExecuteOnDeviceLocallyException(message, status, data) {
+function ExecuteOnDeviceLocallyException(message:any, status:number, data:any) {
   return {
     message: message,
     status: status,
@@ -132,7 +155,7 @@ function ExecuteOnDeviceLocallyException(message, status, data) {
 // or throw and exception to indicate a local issue.
 // FIX-ME distinguish between not reachable and couldn't handle error.
 // https://developers.google.com/assistant/smarthome/reference/intent/execute
-function ExecuteOnDeviceLocally(axiosInstance, deviceId, execution) {
+function ExecuteOnDeviceLocally(axiosInstance: any, deviceId: string, execution: any) {
   let promise = null;
 
   if (deviceId == 'washer') {
@@ -142,29 +165,18 @@ function ExecuteOnDeviceLocally(axiosInstance, deviceId, execution) {
           promise = Promise.allSettled([
             //setHeatMode(axiosInstance, SPA_ID, execution.params.on),
             toggleFeature(axiosInstance, SPA_FEATURE_ID, execution.params.on)
-          ]).then(async (calls) => {
+          ]).then(async (calls:any) => {
             // These calls will actually be the results of the promise
             // .status will have "fulfilled" if it worked correctly
             // If .status is "fulfilled" the value field will be the result of the axios call (the response).
-            if (calls.every(call => (call.status != "fulfilled") && (call.value.status != 200))) {
+            if (calls.every((call: { status: string; value: { status: number; }; }) => (call.status != "fulfilled") && (call.value.status != 200))) {
               throw ExecuteOnDeviceLocallyException(
                 "OnOff Failed to execute locally",
-                calls.map(call => call.value.status),
-                calls.map(call => call.value.data));
+                calls.map((call: { value: { status: any; }; }) => call.value.status),
+                calls.map((call: { value: { data: any; }; }) => call.value.data));
             }
 
             logger.info("OnOff completed succesfully %o.", execution.params);
-
-            if (false) {
-              for (;;) {
-                let response = await getConfig(axiosInstance);
-                logger.info("circuits %o", response.data.circuits);
-                logger.info("bodies %o", response.data.temps.bodies);
-                await new Promise(r => setTimeout(r, 2000));
-              }
-
-              process.exit();
-            }
 
             return {
               states: {
@@ -178,7 +190,7 @@ function ExecuteOnDeviceLocally(axiosInstance, deviceId, execution) {
         // https://developers.google.com/assistant/smarthome/traits/temperaturesetting#action.devices.commands.thermostatsetmode
         if ("thermostatTemperatureSetpoint" in execution.params) {
           promise = setSetPoint(axiosInstance, SPA_ID, celsiusToFarenheit(execution.params.thermostatTemperatureSetpoint))
-            .then((setPointResponse) => {
+            .then((setPointResponse: { status: number; data: any; }) => {
               if (setPointResponse.status != 200) {
                 throw ExecuteOnDeviceLocallyException("ThermostatTemperatureSetpoint failed", setPointResponse.status, setPointResponse.data);
               }
@@ -200,7 +212,7 @@ function ExecuteOnDeviceLocally(axiosInstance, deviceId, execution) {
 
         // Treat heat and on as the same thing (there is no real mode for this heater)
         promise = setHeatMode(axiosInstance, SPA_ID, !execution.params.thermostatMode.equals("off"))
-          .then((setHeatModeReponse) => {
+          .then((setHeatModeReponse: { status: number; data: any; }) => {
             if (setHeatModeReponse.status != 200) {
               throw ExecuteOnDeviceLocallyException("ThermostatTemperatureSetpoint failed", setHeatModeReponse.status, setHeatModeReponse.data);
             }
@@ -217,7 +229,7 @@ function ExecuteOnDeviceLocally(axiosInstance, deviceId, execution) {
         let requestedSetPointCelsius = 0;
 
         promise = db.ref(`/devices/${deviceId}`).once('value').then(async (snapshot) => {
-          resolve(snapshot.val().thermostatTemperatureSetpoint);
+          return snapshot.val().thermostatTemperatureSetpoint;
         }).then((setPointInCelsius) => {
           // Now determine which of the two kinds of relative messages we can get and take action.
           let setPointFarenheit = celsiusToFarenheit(setPointInCelsius);
@@ -248,13 +260,13 @@ function ExecuteOnDeviceLocally(axiosInstance, deviceId, execution) {
         break;
       case "action.devices.commands.SetToggles":
         // https://developers.google.com/assistant/smarthome/traits/toggles
-        if (!"Jets" in execution.params.updateToggleSettings) {
+        if (!("Jets" in execution.params.updateToggleSettings)) {
           throw ExecuteOnDeviceLocallyException(`SetToggles for Jet failed`, 0, execution.params.updateToggleSettings);
         }
 
         let jetsOn = execution.params.updateToggleSettings.Jets;
         promise = toggleFeature(axiosInstance, JETS_ID, jetsOn)
-          .then((toggleFeatureResponse) => {
+          .then((toggleFeatureResponse: { status: number; data: any; }) => {
             if (toggleFeatureResponse.status != 200) {
               throw ExecuteOnDeviceLocallyException("SetToggles failed", toggleFeatureResponse.status, toggleFeatureResponse.data);
             }
@@ -278,7 +290,7 @@ function ExecuteOnDeviceLocally(axiosInstance, deviceId, execution) {
   return promise;
 }
 
-async function handleSync(body) {
+async function handleSync(body: { requestId: any; }) {
   logger.info(`onSync() ${JSON.stringify(body)}`);
 
   return {
@@ -308,13 +320,14 @@ async function handleSync(body) {
 
         willReportState: true,
         attributes: {
-          availableToggles: [{
+          availableToggles: [
+            {
             name: 'Jets',
             name_values: [{
               name_synonym: ['jets', 'bubbles', 'farts'],
               lang: 'en',
             }]
-          }],
+          }]  ,
           availableThermostatModes: [
             "off",
             "heat",
@@ -333,13 +346,19 @@ async function handleSync(body) {
 }
 
 
-async function handleExecute(body) {
+async function handleExecute(body: { inputs?: any; requestId?: any; }) {
   const {
     requestId
   } = body;
 
   // Execution results are grouped by status
-  const result = {
+  interface ExecuteResult {
+    ids: Array<string>;
+    status: string;
+    states: any;
+  };
+
+  const result: ExecuteResult = {
     ids: [],
     status: '',
     states: {
@@ -355,14 +374,14 @@ async function handleExecute(body) {
       for (const execution of command.execution) {
         executePromises.push(
           ExecuteOnDeviceLocally(axiosInstance, device.id, execution)
-          .then(async (data) => {
+          .then(async (data: any) => {
             await updatePoolDataOnce();
             logger.info(`Got response ${JSON.stringify(data)}`);
             result.status = 'SUCCESS';
             result.ids.push(device.id);
             Object.assign(result.states, data);
           })
-          .catch((error) => {
+          .catch((error: any) => {
             logger.info(`Unable to update ${device.id} because ${JSON.stringify(error)}`);
           }),
         );
@@ -381,7 +400,7 @@ async function handleExecute(body) {
 }
 
 
-async function HandleIntent(requestPayload) {
+async function HandleIntent(requestPayload: { intent: any; body: any; }) {
   logger.info(`Handling ${requestPayload.intent} for ${JSON.stringify(requestPayload)}`);
   let responseBody = {};
   let requestBody = requestPayload.body;
@@ -404,7 +423,7 @@ async function HandleIntent(requestPayload) {
   return responseBody;
 }
 
-var queue = new Queue(rpcRequestRef, function(request, progress, resolve, reject) {
+var queue = new Queue(rpcRequestRef, function(request: { requestId: any; payload: { intent: any; body: any; }; }, progress: (arg0: number) => void, resolve: () => void) {
   // Read and process task data
   logger.info("RpcRequest %o", request);
 
@@ -438,13 +457,13 @@ var queue = new Queue(rpcRequestRef, function(request, progress, resolve, reject
 var _ = require('lodash');
 
 
-function getConfig(instance) {
+function getConfig(instance: { get: (arg0: string) => any; }) {
   return instance.get('/state/all');
 }
 
 // Update the database only if updates are different
 // that what the database already contains.
-async function updateOnlyIfChanged(ref, updates) {
+async function updateOnlyIfChanged({ ref, updates }: { ref: any; updates: { [x: number]: any; thermostatTemperatureSetpoint?: number; thermostatTemperatureAmbient?: number; activeThermostatMode?: string; thermostatMode?: string; online?: boolean; on?: any; }; }) {
   // Fetch the data under ref.
   let currentSnapshot = await ref.once("value");
   let current = currentSnapshot.val();
@@ -456,12 +475,9 @@ async function updateOnlyIfChanged(ref, updates) {
   }
 }
 
-function farenheitToCelsius(tempF) {
-  return Math.round((tempF - 32.0) * 5.0 / 9.0);
-}
 
 
-async function reportState(deviceId) {
+async function reportState(deviceId: string) {
   logger.info("Reporting state for %o", deviceId)
   db.ref(`/devices/${deviceId}`).once('value').then(async (snapshot) => {
       let val = snapshot.val();
@@ -495,24 +511,28 @@ async function reportState(deviceId) {
 
 }
 
-async function updateHeater(deviceId, setPoint, currentTemperature, intendedToBeOn, actuallyHeating) {
-  await updateOnlyIfChanged(db.ref(`/devices/${deviceId}`), {
-    thermostatTemperatureSetpoint: farenheitToCelsius(setPoint),
-    thermostatTemperatureAmbient: farenheitToCelsius(currentTemperature),
-    activeThermostatMode: actuallyHeating ? "heat" : "off",
-    thermostatMode: intendedToBeOn ? "heat" : "off",
-    online: true
-  })
+async function updateHeater(deviceId: string, setPoint: number, currentTemperature: number, intendedToBeOn: boolean, actuallyHeating: any) {
+  await updateOnlyIfChanged({
+      ref: db.ref(`/devices/${deviceId}`), updates: {
+        thermostatTemperatureSetpoint: farenheitToCelsius(setPoint),
+        thermostatTemperatureAmbient: farenheitToCelsius(currentTemperature),
+        activeThermostatMode: actuallyHeating ? "heat" : "off",
+        thermostatMode: intendedToBeOn ? "heat" : "off",
+        online: true
+      }
+    })
 }
 
-async function updateFeatures(name, isOn, value) {
+async function updateFeatures(name: any, isOn: any, _value: any) {
   // FIX-ME change to relative for path to this device
-  await updateOnlyIfChanged(db.ref("/devices/washer/currentToggleSettings"), {
-    [name]: isOn
-  });
+  await updateOnlyIfChanged({
+      ref: db.ref("/devices/washer/currentToggleSettings"), updates: {
+        [name]: isOn
+      }
+    });
 }
 
-async function recordBodies(bodies) {
+async function recordBodies(bodies: any) {
   for (var body of bodies) {
     if (body.name == 'Spa') {
       await updateHeater('washer', body.setPoint, body.temp, body.heatMode.val == 1, body.isOn)
@@ -520,14 +540,16 @@ async function recordBodies(bodies) {
   }
 }
 
-async function recordCircuits(circuits) {
+async function recordCircuits(circuits: any) {
   for (var circuit of circuits) {
     if (circuit.name == "Jets") {
       await updateFeatures(circuit.name, circuit.isOn, circuit.type.val)
     } else if (circuit.name == "Spa") {
-      await updateOnlyIfChanged(db.ref(`/devices/washer`), {
-        on: circuit.isOn
-      })
+      await updateOnlyIfChanged({
+          ref: db.ref(`/devices/washer`), updates: {
+            on: circuit.isOn
+          }
+        })
     }
   }
 }
