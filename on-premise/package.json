@@ -7,9 +7,11 @@
   "license": "Apache License Version 2.0",
   "scripts": {
     "compile": "tsc && cp  src/service-account.json built",
-    "start": "node built/queue.js  | pino-pretty -c -t"
+    "start": "node built/queue.js  | pino-pretty -c -t",
+    "watch": "watch 'npm run compile' ./src"
   },
   "dependencies": {
+    "actions-on-google": "^2.13.0",
     "axios": "^0.21.0",
     "escape-html": "^1.0.3",
     "firebase": "^8.1.1",
@@ -19,7 +21,8 @@
     "lodash": "^4.17.20",
     "pino": "^6.7.0",
     "pino-pretty": "^4.3.0",
-    "uuid": "^8.3.1"
+    "uuid": "^8.3.1",
+    "watch": "^1.0.2"
   },
   "devDependencies": {
     "@tsconfig/node14": "^1.0.0",
