@@ -305,18 +305,23 @@ async function reportState(states: { [deviceId: string]: any; } ) {
 }
 
 async function reportStateForAllDevicesOnce() {
-  let configResponse = await getConfig(axiosInstance);
-  if (configResponse.status != 200) {
-    throw ExecuteOnDeviceLocallyException("Couldn't get state", configResponse.request, configResponse.data);
-  }
-  let poolData: PoolData = new PoolData(configResponse.data);
-  let states: { [key: string]: any; } = {};
+  try {
+    let configResponse = await getConfig(axiosInstance);
+    if (configResponse.status != 200) {
+      throw ExecuteOnDeviceLocallyException("Couldn't get state", configResponse.request, configResponse.data);
+    }
+    let poolData: PoolData = new PoolData(configResponse.data);
+    let states: { [key: string]: any; } = {};
 
-  for (let device of AcquireDeviceManager().devices) {
-    states[device.name] = device.googleQueryPayload(poolData);
-  }
+    for (let device of AcquireDeviceManager().devices) {
+      states[device.name] = device.googleQueryPayload(poolData);
+    }
 
-  await reportState(states);
+    await reportState(states);
+  } catch (e) {
+    logger.error("reportStateForAllDevicesOnce: %o", e);
+    
+  }
 }
 
 // On some interval update our internal database
@@ -461,7 +466,6 @@ class SimpleOnOff extends Device {
   }
 }
 
-
 abstract class HeatedThing extends SimpleOnOff {
   bodyId: number;
 
@@ -573,33 +577,6 @@ abstract class HeatedThing extends SimpleOnOff {
       }
     };
   }
-}
-
-class Spa extends HeatedThing {
-  constructor(circuitId: number, name: string, bodyId: number) {
-    super(circuitId, name, bodyId);
-  }
-
-  protected googleActionTraits(): string[] {
-    return [
-      'action.devices.traits.OnOff',
-      'action.devices.traits.Toggles',
-      'action.devices.traits.TemperatureSetting'
-    ];
-  }
-
-  protected googleActionType(): string {
-    return "action.devices.types.WATERHEATER";
-  }
-
-  protected googleActionName(): SmartHomeV1SyncName {
-    return {
-      defaultNames: ['My Spa'],
-      name: 'Spa',
-      // First one in list is name that Assistant will choose..
-      nicknames: ['Spa', 'Jacuzzi', 'hot tub'],
-    };
-  }
 
   // 40 F to 104F
   private readonly MIN_TEMPERATURE_THRESHOLD_CELSIUS = 5;
@@ -612,14 +589,6 @@ class Spa extends HeatedThing {
       "queryOnlyOnOff": false,
 
       // Thermostat
-      availableToggles: [
-        {
-          name: 'Jets',
-          name_values: [{
-            name_synonym: ['jets', 'bubbles', 'farts'],
-            lang: 'en',
-          }]
-        }],
       availableThermostatModes: [
         "off",
         "heat",
@@ -653,40 +622,80 @@ class Spa extends HeatedThing {
     }
   }
 
-  async executeSetToggles(requestExecution: SmartHomeV1ExecuteRequestExecution, poolData: PoolData) {
-    if (!requestExecution.params) {
-      throw ExecuteOnDeviceLocallyException("ThermostatSetMode requestExecution.params is null", 0, null);
-    }
-
-    if (!("Jets" in requestExecution.params.updateToggleSettings)) {
-      throw ExecuteOnDeviceLocallyException(`SetToggles for Jet failed`, 0, requestExecution.params.updateToggleSettings);
-    }
-
-    // FIX-ME get JET_ID passed in (some how extract it)
-    const JETS_ID = 4;
-    let jetsOn = requestExecution.params.updateToggleSettings.Jets;
-    let toggleFeatureResponse = await toggleFeature(axiosInstance, JETS_ID, jetsOn)
-    if (toggleFeatureResponse.status != 200) {
-      throw ExecuteOnDeviceLocallyException("SetToggles failed", toggleFeatureResponse.status, toggleFeatureResponse.data);
-    }
-    return {
-      states: {
-        "currentToggleSettings": {
-          "Jets": jetsOn
-        }
-      }
-    };
-  }
-
-  async googleExecutePayload(requestExecution: SmartHomeV1ExecuteRequestExecution, poolData: PoolData): Promise<ApiClientObjectMap<any>> {
-    if (requestExecution.command === "action.devices.commands.SetToggles") {
-      // https://developers.google.com/assistant/smarthome/traits/toggles
-      return this.executeSetToggles(requestExecution, poolData);
-    } else {
-      return super.googleExecutePayload(requestExecution, poolData);
-    }
+  protected googleActionTraits(): string[] {
+    return [
+      'action.devices.traits.OnOff',
+      'action.devices.traits.TemperatureSetting'
+    ];
   }
 }
+
+class Spa extends HeatedThing {
+  constructor(circuitId: number, name: string, bodyId: number) {
+    super(circuitId, name, bodyId);
+  }
+
+  protected googleActionType(): string {
+    return "action.devices.types.WATERHEATER";
+  }
+
+  protected googleActionName(): SmartHomeV1SyncName {
+    return {
+      defaultNames: ['My Spa'],
+      name: 'Spa',
+      // First one in list is name that Assistant will choose..
+      nicknames: ['Spa', 'Jacuzzi', 'hot tub'],
+    };
+  }
+}
+
+class Pool extends HeatedThing {
+  constructor(circuitId: number, name: string, bodyId: number) {
+    super(circuitId, name, bodyId);
+  }
+
+  protected googleActionType(): string {
+    return "action.devices.types.WATERHEATER";
+  }
+
+  protected googleActionName(): SmartHomeV1SyncName {
+    return {
+      defaultNames: ['My Pool'],
+      name: 'Pool',
+      // First one in list is name that Assistant will choose..
+      nicknames: ['Pool'],
+    };
+  }
+}
+
+class Intellibrite extends Device {
+  protected googleActionTraits(): string[] {
+    return ["action.devices.traits.Modes"];
+  }
+ 
+  protected googleActionType(): string {
+    return "action.devices.types.LIGHT";
+  }
+
+  protected googleActionName(): SmartHomeV1SyncName {
+    return {
+      defaultNames: ['My Pool Light'],
+      name: 'Pool Light',
+      // First one in list is name that Assistant will choose..
+      nicknames: ['Pool Light'],
+    };  };
+
+  protected googleActionAttributes(): ApiClientObjectMap<any> {
+    throw new Error('Method not implemented.');
+  }
+  googleQueryPayload(poolData: PoolData): ApiClientObjectMap<any> {
+    throw new Error('Method not implemented.');
+  }
+  googleExecutePayload(requestExecution: SmartHomeV1ExecuteRequestExecution, poolData: PoolData): Promise<ApiClientObjectMap<any>> {
+    throw new Error('Method not implemented.');
+  }
+}
+
 
 let gDeviceManager: DeviceManager | null = null;
 
@@ -802,7 +811,11 @@ class DeviceManager {
             device = new SimpleOnOff(circuit.id, circuit.name);
             break;
           case 2:
-          // Pool
+            device = new Pool(circuit.id, circuit.name, this.bodyIdForCircuitId(circuit.id, configResponse.data));
+            break;
+          case 16:
+            //device = new Intellibrite(circuit.id, circuit.name);
+            break;
           default:
         }
 
@@ -839,7 +852,7 @@ async function InitializeDeviceManager() {
 // FIX-ME: When I figure out how singletons work in TS, replace this.
 function AcquireDeviceManager(): DeviceManager {
   if (gDeviceManager == null) {
-    throw new Error("No device manager.")
+    throw Error("No device manager.")
   }
 
   return gDeviceManager;

@@ -3,9 +3,11 @@
 
 	"compilerOptions": {
     "outDir": "./built",
-  },
+    "sourceMap": true
+  }, 
   "allowJs": true,
   "include": ["src/**/*"],
   "exclude": ["node_modules", "**/*.spec.ts"],
-  "compileOnSave": true
+  "compileOnSave": true,
 }
+  

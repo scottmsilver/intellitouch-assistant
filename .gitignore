@@ -117,3 +117,5 @@ dist
 
 service-account.json
 .DS_Store
+on-premise/src/service-account-old.json
+on-premise/built
