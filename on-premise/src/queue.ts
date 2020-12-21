@@ -133,11 +133,6 @@ function getLightGroupConfig(instance: AxiosInstance): Promise<AxiosResponse> {
   return instance.get('/config/options/lightGroups');
 }
 
-function setColors(instance: AxiosInstance, lightGroupId: number): Promise<AxiosResponse> {
-  return instance.put(`/config/lightGroup/${lightGroupId}/setColors`);
-}
-
-
 const USER_ID = '123';
 
 function celsiusToFarenheit(celsius: number) {
@@ -883,10 +878,6 @@ their colors.
     logger.info(`Trying to set light theme for theme name "${theme}"  and value: "${value}"`);
     ///state/circuit / setTheme { "id": 192, "theme": 182 }
     let call = await setTheme(axiosInstance, this.lightGroupId, value);
-    if (call.status != 200) {
-      throw ExecuteOnDeviceLocallyException("OnOff Failed to execute locally", call.status, call.data);
-    }
-    call = await setColors(axiosInstance, this.lightGroupId)
     if (call.status != 200) {
       throw ExecuteOnDeviceLocallyException("OnOff Failed to execute locally", call.status, call.data);
     }
