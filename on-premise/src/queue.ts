@@ -27,6 +27,9 @@ const logger = require('pino')()
 import { google } from 'googleapis';
 import type { SmartHomeV1SyncName, SmartHomeV1SyncDevices, SmartHomeV1SyncDeviceInfo, SmartHomeV1SyncPayload, SmartHomeV1ExecuteRequestExecution, SmartHomeV1ExecuteResponseCommands } from 'actions-on-google';
 import { ApiClientObjectMap, request } from 'actions-on-google/dist/common';
+import { get } from 'https';
+import { LightingConfiguration, PoolState } from './PoolControllerMessages';
+
 
 // Initialize the app with a service account, granting admin privileges
 /** @type {any} */
@@ -67,14 +70,14 @@ async function handleQuery(body: any) {
     let val: any = {}
 
     try {
-      let configResponse = await getConfig(axiosInstance);
+      let configResponse = await getState(axiosInstance);
       if (configResponse.status == 200) {
         let deviceInstance = AcquireDeviceManager().getDevice(device.id);
         if (deviceInstance == undefined) {
           throw new Error(`Couldn't not not find device ${device}`)
         }
 
-        let poolData = new PoolData(configResponse.data);
+        let poolData = new PoolStateHelper(configResponse.data);
         val = deviceInstance.googleQueryPayload(poolData);
       }
       logger.info(`Database state: ${JSON.stringify(val)}`);
@@ -104,6 +107,16 @@ function toggleFeature(instance: AxiosInstance, id: number, on: boolean) {
   });
 }
 
+
+/*
+/state/circuit/setTheme -- {"id":192,"theme":182}*/
+function setTheme(instance: AxiosInstance, circuitId: number, themeId: number) {
+  return instance.put('/state/circuit/setTheme', {
+    id: circuitId,
+    theme: themeId
+  });
+}
+
 //  /state/body/setPoint {"id":2,"setPoint":102}
 function setSetPoint(instance: AxiosInstance, id: number, setPointFarenheit: number) {
   return instance.put('/state/body/setPoint', {
@@ -112,9 +125,18 @@ function setSetPoint(instance: AxiosInstance, id: number, setPointFarenheit: num
   });
 }
 
-function getConfig(instance: AxiosInstance): Promise<AxiosResponse> {
+function getState(instance: AxiosInstance): Promise<AxiosResponse> {
   return instance.get('/state/all');
 }
+
+function getLightGroupConfig(instance: AxiosInstance): Promise<AxiosResponse> {
+  return instance.get('/config/options/lightGroups');
+}
+
+function setColors(instance: AxiosInstance, lightGroupId: number): Promise<AxiosResponse> {
+  return instance.put(`/config/lightGroup/${lightGroupId}/setColors`);
+}
+
 
 const USER_ID = '123';
 
@@ -146,12 +168,12 @@ function ExecuteOnDeviceLocallyException(message: any, status: number, data: any
 // https://developers.google.com/assistant/smarthome/reference/intent/execute
 async function ExecuteOnDeviceLocally(axiosInstance: AxiosInstance, deviceId: string, execution: any) {
   // FIX-ME: we don't need to get the state from the pool in all instances.
-  let configResponse = await getConfig(axiosInstance);
+  let configResponse = await getState(axiosInstance);
   if (configResponse.status != 200) {
     throw Error("Couldn't get config data.")
   }
   let device = AcquireDeviceManager().getDevice(deviceId);
-  let poolData = new PoolData(configResponse.data);
+  let poolData = new PoolStateHelper(configResponse.data);
   let promise = device?.googleExecutePayload(execution, poolData);
 
   if (promise == null) {
@@ -203,7 +225,7 @@ async function handleExecute(body: { inputs?: any; requestId?: any; }) {
         executePromises.push(
           ExecuteOnDeviceLocally(axiosInstance, device.id, execution)
             .then(async (data: any) => {
-              logger.info(`Got response ${JSON.stringify(data)}`);
+              logger.info("Got response %o", data);
               result.status = 'SUCCESS';
               result.ids.push(device.id);
               Object.assign(result.states, data);
@@ -281,6 +303,7 @@ var queue = new Queue(firebase.database().ref("/rpcRequest"), function (request:
 });
 
 
+
 // Report tate to the homegraph.
 // states is essentially a deviceId key'd version of the state of
 // the device. Thate state of the device is  identical
@@ -306,11 +329,11 @@ async function reportState(states: { [deviceId: string]: any; } ) {
 
 async function reportStateForAllDevicesOnce() {
   try {
-    let configResponse = await getConfig(axiosInstance);
+    let configResponse = await getState(axiosInstance);
     if (configResponse.status != 200) {
       throw ExecuteOnDeviceLocallyException("Couldn't get state", configResponse.request, configResponse.data);
     }
-    let poolData: PoolData = new PoolData(configResponse.data);
+    let poolData: PoolStateHelper = new PoolStateHelper(configResponse.data);
     let states: { [key: string]: any; } = {};
 
     for (let device of AcquireDeviceManager().devices) {
@@ -338,20 +361,43 @@ function reportStateForAllDevicesContinuously(timeoutMs: number) {
   }
 }
 
-class PoolData {
-  rawData: any;
+class PoolStateHelper {
+  allState: PoolState.Response;
 
-  constructor(rawData: any) {
-    this.rawData = rawData;
+  constructor(allState: any) {
+    this.allState = allState;
   }
 
   // Return circuit dta for given circuitId.
   getCircuitData(circuitId: number): any {
-    return this.rawData.circuits.find((circuit: { id: number; }) => { return circuit.id == circuitId });
+    return this.allState.circuits.find((circuit: { id: number; }) => { return circuit.id == circuitId });
+  }
+
+  getLightingTheme(lightGroupId: number): PoolState.LightingTheme | undefined {
+    return this.allState.lightGroups.find(lightGroup => lightGroup.id == lightGroupId)?.lightingTheme;
   }
 
   getBodyData(bodyId: number): any {
-    return this.rawData.temps.bodies.find((body: { id: number; }) => { return body.id == bodyId });
+    return this.allState.temps.bodies.find((body: { id: number; }) => { return body.id == bodyId });
+  }
+}
+
+class PoolLightGroups {
+  lightGroupsState: LightingConfiguration.LightGroupConfigResponse;
+
+  constructor(lightGroupsState: LightingConfiguration.LightGroupConfigResponse) {
+    this.lightGroupsState = lightGroupsState;
+  }
+
+  // Basic idea is the themes contain pool color themes and theny it also includes other
+    // "meta" themes that I do not support and will filter them out.
+    // Also, since we are Intellibrite, we only support those themes...
+  getIntellibriteColorThemes(): Array<LightingConfiguration.Theme> {
+    return this.lightGroupsState.themes.filter((theme) => theme.type === "intellibrite");
+  }
+
+  static async Build(axios: AxiosInstance): Promise<PoolLightGroups> {
+    return new PoolLightGroups(((await getLightGroupConfig(axios)).data as unknown) as LightingConfiguration.LightGroupConfigResponse);
   }
 }
 
@@ -387,10 +433,10 @@ abstract class Device {
   protected abstract googleActionType(): string;
   protected abstract googleActionName(): SmartHomeV1SyncName;
   protected abstract googleActionAttributes(): ApiClientObjectMap<any>;
-  abstract googleQueryPayload(poolData: PoolData): ApiClientObjectMap<any>;
+  abstract googleQueryPayload(poolData: PoolStateHelper): ApiClientObjectMap<any>;
 
   // Return the states field of SmartHomeV1ExecuteResponseCommands
-  abstract googleExecutePayload(requestExecution: SmartHomeV1ExecuteRequestExecution, poolData: PoolData): Promise<ApiClientObjectMap<any>>;
+  abstract googleExecutePayload(requestExecution: SmartHomeV1ExecuteRequestExecution, poolData: PoolStateHelper): Promise<ApiClientObjectMap<any>>;
 
   googleActionDeviceInfo(): SmartHomeV1SyncDeviceInfo {
     return {
@@ -434,7 +480,7 @@ class SimpleOnOff extends Device {
     };
   }
 
-  googleQueryPayload(poolData: PoolData): ApiClientObjectMap<any> {
+  googleQueryPayload(poolData: PoolStateHelper): ApiClientObjectMap<any> {
     let circuit: any = poolData.getCircuitData(this.circuitId);
 
     return {
@@ -443,7 +489,7 @@ class SimpleOnOff extends Device {
     }
   }
 
-  async googleExecutePayload(requestExecution: SmartHomeV1ExecuteRequestExecution, poolData: PoolData): Promise<ApiClientObjectMap<any>> {
+  async googleExecutePayload(requestExecution: SmartHomeV1ExecuteRequestExecution, poolData: PoolStateHelper): Promise<ApiClientObjectMap<any>> {
     if (!requestExecution.params || !("on" in requestExecution.params)) {
       throw Error(`Malformed request ${JSON.stringify(requestExecution.params)}`)
     }
@@ -474,7 +520,7 @@ abstract class HeatedThing extends SimpleOnOff {
     this.bodyId = bodyId;
   }
 
-  async googleExecutePayload(requestExecution: SmartHomeV1ExecuteRequestExecution, poolData: PoolData): Promise<ApiClientObjectMap<any>> {
+  async googleExecutePayload(requestExecution: SmartHomeV1ExecuteRequestExecution, poolData: PoolStateHelper): Promise<ApiClientObjectMap<any>> {
     switch (requestExecution.command) {
       case "action.devices.commands.ThermostatTemperatureSetpoint":
         // https://developers.google.com/assistant/smarthome/traits/temperaturesetting#action.devices.commands.thermostatsetmode
@@ -495,14 +541,14 @@ abstract class HeatedThing extends SimpleOnOff {
     return super.googleExecutePayload(requestExecution, poolData);
   }
 
-  getSetPointCelsius(poolData: PoolData): number {
+  getSetPointCelsius(poolData: PoolStateHelper): number {
     let body: any = poolData.getBodyData(this.bodyId);
     let circuit: any = poolData.getCircuitData(this.circuitId);
 
     return farenheitToCelsius(body.setPoint);
   }
 
-  async executeTemperatureRelative(requestExecution: SmartHomeV1ExecuteRequestExecution, poolData: PoolData): Promise<ApiClientObjectMap<any>> {
+  async executeTemperatureRelative(requestExecution: SmartHomeV1ExecuteRequestExecution, poolData: PoolStateHelper): Promise<ApiClientObjectMap<any>> {
     if (!requestExecution.params) {
       throw ExecuteOnDeviceLocallyException("ThermostatSetMode requestExecution.params is null", 0, null);
     }
@@ -536,7 +582,7 @@ abstract class HeatedThing extends SimpleOnOff {
     };
   }
 
-  async executeThermostatSetMode(requestExecution: SmartHomeV1ExecuteRequestExecution, poolData: PoolData): Promise<ApiClientObjectMap<any>> {
+  async executeThermostatSetMode(requestExecution: SmartHomeV1ExecuteRequestExecution, poolData: PoolStateHelper): Promise<ApiClientObjectMap<any>> {
     if (!requestExecution.params) {
       throw ExecuteOnDeviceLocallyException("ThermostatSetMode requestExecution.params is null", 0, null);
     }
@@ -558,7 +604,7 @@ abstract class HeatedThing extends SimpleOnOff {
     };
   }
 
-  async executeThermostatTemperatureSetpoint(requestExecution: SmartHomeV1ExecuteRequestExecution, poolData: PoolData): Promise<ApiClientObjectMap<any>> {
+  async executeThermostatTemperatureSetpoint(requestExecution: SmartHomeV1ExecuteRequestExecution, poolData: PoolStateHelper): Promise<ApiClientObjectMap<any>> {
     if (!requestExecution.params) {
       throw ExecuteOnDeviceLocallyException("ThermostatSetMode requestExecution.params is null", 0, null);
     }
@@ -602,7 +648,7 @@ abstract class HeatedThing extends SimpleOnOff {
     };
   }
 
-  googleQueryPayload(poolData: PoolData): ApiClientObjectMap<any> {
+  googleQueryPayload(poolData: PoolStateHelper): ApiClientObjectMap<any> {
     let body: any = poolData.getBodyData(this.bodyId);
     let circuit: any = poolData.getCircuitData(this.circuitId);
 
@@ -668,9 +714,26 @@ class Pool extends HeatedThing {
   }
 }
 
+enum LightModeNames {
+  LIGHT_COLOR = "light_color",
+}
+
+// An Intellibrite lighting system - NB not really just one light.
 class Intellibrite extends Device {
+  themeNameToValMap: Map<string, number>;
+  lightGroupId: number;
+
+  constructor(circuitId: number, name: string, lightGroupId: number, lightGroups: PoolLightGroups) {
+    super(circuitId, name);
+    this.lightGroupId = lightGroupId;
+    this.themeNameToValMap = new Map<string, number>()
+    
+    lightGroups.getIntellibriteColorThemes().map(theme => this.themeNameToValMap.set(theme.name, theme.val));
+  }
+
   protected googleActionTraits(): string[] {
-    return ["action.devices.traits.Modes"];
+    // FIX-ME - share with SimpleOnOff
+    return ["action.devices.traits.Modes", "action.devices.traits.OnOff"];
   }
  
   protected googleActionType(): string {
@@ -683,19 +746,160 @@ class Intellibrite extends Device {
       name: 'Pool Light',
       // First one in list is name that Assistant will choose..
       nicknames: ['Pool Light'],
-    };  };
+    };  
+  };
+
+
+// Unfortunately Pentair overloaded "theme" to mean many things
+// Essentially there are 3 classes of themes
+// 1. Themes as you might normally think of them ... the color sets like Carribean.
+// 2. A state of all the lights ina light group for how they interact with each other (off, on, sync swim)
+// 3. A "command" to tell the lights to do something like "recall" or "save" their current state.
+
+/*
+
+Pentair does weird things with the theme and these are examples of what theme can be set to.
+
+    At least two (2) IntelliBrite®, SAm® and/or SAL, and/or FIBERworks® lighting systems are required
+to use the Color Swim, Color Set and Sync special lighting features. Up to twelve (12) lights can be
+independently controlled from the Lights screen.
+SAm, SAL, or FIBERworks lighting special lighting features:
+Note: The IntelliBrite Color Swim and Color Set (SAm Style) feature is accessed from the Lights
+screen. See page 46 for more information.
+• Color Swim - Presets the light circuit to transition through colors in sequence. This gives the
+appearance of colors dancing through the water. You can adjust the delay of each light to make the
+colors move at different speeds. This feature requires a separate relay for each light.
+• Color Set - Presets the light circuit to a specific colors. This feature requires a separate relay for each
+light.
+•	 Sync - Switches on all IntelliBrite, SAm, SAL, or FIBERworks color changing lights to synchronize
+their colors.
+
+*/
+// themes
 
   protected googleActionAttributes(): ApiClientObjectMap<any> {
-    throw new Error('Method not implemented.');
+    // Build a list of lighte theme settings.
+    let lightColorSettings = [];
+
+    for (let nameValue of this.themeNameToValMap.entries()) {
+      let themeName = nameValue[0];
+
+      let setting = {
+        setting_name: themeName,
+        setting_values: [{
+          setting_synonym: [themeName],
+          lang: "en"
+        }]
+      };
+      lightColorSettings.push(setting);
+    }
+
+    // Return the response in the correct way.
+    return {
+      availableModes: [{
+        name: LightModeNames.LIGHT_COLOR,
+        name_values: [{
+          name_synonym: ["color", "theme", "colors"],
+          lang: "en"
+        }],
+        settings: lightColorSettings,
+        ordered: false
+      },
+      ]
+    }
   }
-  googleQueryPayload(poolData: PoolData): ApiClientObjectMap<any> {
-    throw new Error('Method not implemented.');
+
+  googleQueryPayload(poolData: PoolStateHelper): ApiClientObjectMap<any> {
+    let lightGroup = poolData.getLightingTheme(this.lightGroupId);
+    let circuit = poolData.getCircuitData(this.circuitId);
+
+    return {
+      "currentModeSettings": {
+        [LightModeNames.LIGHT_COLOR]: lightGroup?.name
+      },
+      on: circuit.isOn,
+      online: true
+    } 
   }
-  googleExecutePayload(requestExecution: SmartHomeV1ExecuteRequestExecution, poolData: PoolData): Promise<ApiClientObjectMap<any>> {
-    throw new Error('Method not implemented.');
+
+  // Handle OnOff and SetModes for the Lights.
+  async googleExecutePayload(requestExecution: SmartHomeV1ExecuteRequestExecution, poolData: PoolStateHelper): Promise<ApiClientObjectMap<any>> {
+    switch (requestExecution.command) {
+      case "action.devices.commands.OnOff":
+        return await this.executeOnOff(requestExecution);
+        break;
+      case "action.devices.commands.SetModes":  
+        return await this.executeSetModes(requestExecution); 
+        break;
+      default:
+        throw new Error(`Got unexpected command ${requestExecution.command}`);
+    }
+  }
+
+  // Turn on or off the lights.
+  // FIX-ME we should merge this with the same implementation which is in SimpleOnOff. 
+  private async executeOnOff(requestExecution: SmartHomeV1ExecuteRequestExecution) {
+    if (!requestExecution.params || !("on" in requestExecution.params)) {
+      throw Error(`Malformed request ${JSON.stringify(requestExecution.params)}`);
+    }
+
+    let call = await toggleFeature(axiosInstance, this.circuitId, requestExecution.params.on);
+    if (call.status != 200) {
+      throw ExecuteOnDeviceLocallyException(
+        "OnOff Failed to execute locally",
+        call.status,
+        call.data);
+    }
+
+    logger.info("OnOff completed succesfully %o.", requestExecution.params);
+
+    return {
+      states: {
+        "on": requestExecution.params.on
+      }
+    };
+  }
+
+  // Execute a SetModes command by changing to the requested theme.
+  // Theme is a list that we get from the device itself.
+  // Please see the note at the top of this class for how Pentair overloads
+  // theme to mean many things. We don't try to do anything special with theme
+  // and assume the user knows what they are doing.
+  private async executeSetModes(requestExecution: SmartHomeV1ExecuteRequestExecution) {
+    if (!requestExecution.params?.updateModeSettings?.[LightModeNames.LIGHT_COLOR]) {
+      throw Error(`Malformed request ${JSON.stringify(requestExecution.params)}`);
+    }
+
+    let theme = requestExecution.params.updateModeSettings[LightModeNames.LIGHT_COLOR];
+    if (!theme) {
+      throw Error("Missing light color.");
+    }
+
+    let value = this.themeNameToValMap.get(theme);
+    if (!value) {
+      throw Error(`Unknown theme ${theme}`);
+    }
+
+    logger.info(`Trying to set light theme for theme name "${theme}"  and value: "${value}"`);
+    ///state/circuit / setTheme { "id": 192, "theme": 182 }
+    let call = await setTheme(axiosInstance, this.lightGroupId, value);
+    if (call.status != 200) {
+      throw ExecuteOnDeviceLocallyException("OnOff Failed to execute locally", call.status, call.data);
+    }
+    call = await setColors(axiosInstance, this.lightGroupId)
+    if (call.status != 200) {
+      throw ExecuteOnDeviceLocallyException("OnOff Failed to execute locally", call.status, call.data);
+    }
+
+    logger.info("SetModes completed succesfully %o.", requestExecution.params);
+    return {
+      "currentModeSettings": {
+        [LightModeNames.LIGHT_COLOR]: theme
+      },
+      online: true
+    };
   }
 }
-
 
 let gDeviceManager: DeviceManager | null = null;
 
@@ -792,8 +996,8 @@ class DeviceManager {
   }
 
   async initialize() {
-    let configResponse = await getConfig(axiosInstance);
-
+    let configResponse = await getState(axiosInstance);
+  
     if (configResponse.status != 200) {
       throw new Error("Coult not get pool data");
     }
@@ -814,7 +1018,8 @@ class DeviceManager {
             device = new Pool(circuit.id, circuit.name, this.bodyIdForCircuitId(circuit.id, configResponse.data));
             break;
           case 16:
-            //device = new Intellibrite(circuit.id, circuit.name);
+            // FIX-ME I think lightGroupId comes from from ligroups circuits ciruit
+            device = new Intellibrite(circuit.id, circuit.name, 192, await PoolLightGroups.Build(axiosInstance));
             break;
           default:
         }
@@ -823,7 +1028,7 @@ class DeviceManager {
           this.devices.push(device);
           logger.info("Device disovered: %o type %d from circuit (%o)", device, circuit.type.val, circuit);
         } else {
-          logger.error("Unknown device type %d: %o", circuit.type.val, circuit);
+          logger.warn("Unknown device type %d: %o", circuit.type.val, circuit);
         }
       }
     }
@@ -858,5 +1063,58 @@ function AcquireDeviceManager(): DeviceManager {
   return gDeviceManager;
 }
 
-InitializeDeviceManager();
-reportStateForAllDevicesContinuously(10000);
+function testQuery() {
+  let body = {
+    inputs: [
+      {
+        payload: {
+          devices: [
+            {
+              id: 'Lights'
+            }
+          ]
+        }
+      }
+    ]
+  };
+
+  handleQuery(body).then((value) => console.log("got %o", value)).catch((error) => console.error("error:%o", error));
+}
+
+function testExecute() {
+  let body = {
+    inputs: [
+      {
+        payload: {
+          commands: [
+            {
+              devices: [
+                {
+                  id:'Lights'
+                }
+              ],
+              execution: [
+                {
+                  command: "action.devices.commands.SetModes",
+                  params: {
+                    updateModeSettings: {
+                      [LightModeNames.LIGHT_COLOR]: "magenta"
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  };
+
+  handleExecute(body).then((value) => console.log("got %o", value)).catch((error) => console.error("error:%o", error));
+}
+
+InitializeDeviceManager().then(function (value) {
+  testExecute();
+  testQuery();
+  reportStateForAllDevicesContinuously(10000);
+})
