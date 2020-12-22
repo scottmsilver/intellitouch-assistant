@@ -357,7 +357,7 @@ function testExecute() {
 }
 
 InitializeDeviceManager().then(function (value) {
-  testExecute();
-  testQuery();
+ // testExecute();
+ // testQuery();
   reportStateForAllDevicesContinuously(10000);
 })
