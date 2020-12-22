@@ -20,7 +20,6 @@
 // to the nodejs-poolController webservice here https://github.com/tagyoureit/nodejs-poolController.
 'use strict';
 
-
 export function celsiusToFarenheit(celsius: number) {
   return Math.round(9 / 5 * celsius + 32);
 }

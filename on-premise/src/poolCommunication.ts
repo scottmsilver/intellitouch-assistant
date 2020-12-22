@@ -22,43 +22,42 @@
 import { AxiosInstance, AxiosResponse } from 'axios';
 import { LightingConfiguration, PoolState } from './PoolControllerMessages';
 
-
 export function setHeatMode(instance: any, id: number, on: boolean) {
-    return instance.put('/state/body/heatMode', {
-        id: id,
-        mode: on ? 1 : 0
-    });
+  return instance.put('/state/body/heatMode', {
+    id: id,
+    mode: on ? 1 : 0
+  });
 }
 
 export function toggleFeature(instance: AxiosInstance, id: number, on: boolean) {
-    return instance.put('/state/circuit/setState', {
-        id: id,
-        state: on
-    });
+  return instance.put('/state/circuit/setState', {
+    id: id,
+    state: on
+  });
 }
+
 // NB: Though the API documents the id as a circuit id, it is actually a lightGroupId.
-
 export function setTheme(instance: AxiosInstance, lightGroupId: number, themeId: number) {
-    return instance.put('/state/circuit/setTheme', {
-        id: lightGroupId,
-        theme: themeId
-    });
+  return instance.put('/state/circuit/setTheme', {
+    id: lightGroupId,
+    theme: themeId
+  });
 }
-//  /state/body/setPoint {"id":2,"setPoint":102}
 
+//  /state/body/setPoint {"id":2,"setPoint":102}
 export function setSetPoint(instance: AxiosInstance, id: number, setPointFarenheit: number) {
-    return instance.put('/state/body/setPoint', {
-        id: id,
-        setPoint: setPointFarenheit
-    });
+  return instance.put('/state/body/setPoint', {
+    id: id,
+    setPoint: setPointFarenheit
+  });
 }
 
 export function getState(instance: AxiosInstance): Promise<AxiosResponse> {
-    return instance.get('/state/all');
+  return instance.get('/state/all');
 }
 
 export function getLightGroupConfig(instance: AxiosInstance): Promise<AxiosResponse> {
-    return instance.get('/config/options/lightGroups');
+  return instance.get('/config/options/lightGroups');
 }
 
 export class PoolStateHelper {
@@ -81,6 +80,7 @@ export class PoolStateHelper {
     return this.allState.temps.bodies.find((body: { id: number; }) => { return body.id == bodyId; });
   }
 }
+
 export class PoolLightGroups {
   lightGroupsState: LightingConfiguration.LightGroupConfigResponse;
 

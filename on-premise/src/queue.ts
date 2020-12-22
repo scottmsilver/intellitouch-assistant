@@ -25,7 +25,7 @@ import firebase from 'firebase-admin';
 import axios, { AxiosInstance } from 'axios';
 import { google } from 'googleapis';
 import { AcquireDeviceManager, LightModeNames, InitializeDeviceManager } from './devices';
-import { PoolStateHelper, PoolLightGroups, toggleFeature, setSetPoint, setHeatMode, setTheme, getState } from './poolCommunication';
+import { PoolStateHelper, getState } from './poolCommunication';
 
 export const logger = require('pino')()
 
@@ -128,7 +128,6 @@ async function ExecuteOnDeviceLocally(axiosInstance: AxiosInstance, deviceId: st
 
   return promise;
 }
-
 
 // FIX-ME(ssilver): Fix the types of this to use the real types
 // instead of the any.
@@ -253,11 +252,11 @@ var queue = new Queue(firebase.database().ref("/rpcRequest"), function (request:
 // states is essentially a deviceId key'd version of the state of
 // the device. Thate state of the device is  identical
 // to the "query" intent response.
-async function reportState(states: { [deviceId: string]: any; } ) {
+async function reportState(states: { [deviceId: string]: any; }) {
   logger.info("Reporting state for %o", states)
 
   const requestBody = {
-    requestId: 'ff36a3cc', 
+    requestId: 'ff36a3cc',
     agentUserId: USER_ID,
     payload: {
       devices: {
@@ -288,7 +287,7 @@ async function reportStateForAllDevicesOnce() {
     await reportState(states);
   } catch (e) {
     logger.error("reportStateForAllDevicesOnce: %o", e);
-    
+
   }
 }
 
@@ -333,7 +332,7 @@ function testExecute() {
             {
               devices: [
                 {
-                  id:'Lights'
+                  id: 'Lights'
                 }
               ],
               execution: [

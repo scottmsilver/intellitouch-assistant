@@ -22,68 +22,68 @@
 
 export namespace LightingConfiguration {
 
-export interface EquipmentName {
-  val: number;
-  name: string;
-  desc: string;
-}
+  export interface EquipmentName {
+    val: number;
+    name: string;
+    desc: string;
+  }
 
-export interface Theme {
-  val: number;
-  name: string;
-  desc: string;
-  type: string;
-}
+  export interface Theme {
+    val: number;
+    name: string;
+    desc: string;
+    type: string;
+  }
 
-export interface Color {
-  val: number;
-  name: string;
-  desc: string;
-}
+  export interface Color {
+    val: number;
+    name: string;
+    desc: string;
+  }
 
-export interface Circuit {
-  id: number;
-  name: string;
-  type: number;
-  equipmentType: string;
-  nameId: number;
-}
+  export interface Circuit {
+    id: number;
+    name: string;
+    type: number;
+    equipmentType: string;
+    nameId: number;
+  }
 
-export interface Circuit2 {
-  id: number;
-  circuit: number;
-  position: number;
-  color: number;
-  swimDelay: number;
-  isActive: boolean;
-}
+  export interface Circuit2 {
+    id: number;
+    circuit: number;
+    position: number;
+    color: number;
+    swimDelay: number;
+    isActive: boolean;
+  }
 
-export interface LightGroup {
-  id: number;
-  circuits: Circuit2[];
-  isActive: boolean;
-  name: string;
-  type: number;
-  lightingTheme: number;
-}
+  export interface LightGroup {
+    id: number;
+    circuits: Circuit2[];
+    isActive: boolean;
+    name: string;
+    type: number;
+    lightingTheme: number;
+  }
 
-export interface Function {
-  val: number;
-  name: string;
-  desc: string;
-  isLight?: boolean;
-}
+  export interface Function {
+    val: number;
+    name: string;
+    desc: string;
+    isLight?: boolean;
+  }
 
-export interface LightGroupConfigResponse {
-  maxLightGroups: number;
-  equipmentNames: EquipmentName[];
-  // These appear to be 
-  themes: Theme[];
-  colors: Color[];
-  circuits: Circuit[];
-  lightGroups: LightGroup[];
-  functions: Function[];
-}
+  export interface LightGroupConfigResponse {
+    maxLightGroups: number;
+    equipmentNames: EquipmentName[];
+    // These appear to be 
+    themes: Theme[];
+    colors: Color[];
+    circuits: Circuit[];
+    lightGroups: LightGroup[];
+    functions: Function[];
+  }
 }
 
 export namespace PoolState {
