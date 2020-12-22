@@ -119,3 +119,12 @@ service-account.json
 .DS_Store
 on-premise/src/service-account-old.json
 on-premise/built
+all.json
+all2.json
+.gitignore
+circuits.json
+configall.json
+lightgroups.json
+references.json
+.vscode/
+cloud/.firebaserc

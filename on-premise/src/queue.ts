@@ -49,6 +49,8 @@ const USER_ID = '123';
 
 var Queue = require('firebase-queue');
 
+// https://firebase.google.com/docs/firestore/solutions/role-based-access
+
 // FIX-ME use interfaces from type description
 async function handleQuery(body: any) {
   interface QueryResult {
@@ -287,7 +289,6 @@ async function reportStateForAllDevicesOnce() {
     await reportState(states);
   } catch (e) {
     logger.error("reportStateForAllDevicesOnce: %o", e);
-
   }
 }
 

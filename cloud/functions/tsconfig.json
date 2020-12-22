@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "outDir": "lib",
+    "sourceMap": true,
+    "target": "ES6",
+    "lib": [
+        "esnext.asynciterable"
+    ],
+  },
+  "compileOnSave": true,
+  "include": [
+    "src/**/*"
+  ]
+}

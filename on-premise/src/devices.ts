@@ -656,6 +656,7 @@ class DeviceManager {
     return this.devices.find(device => { return device.name == deviceId; });
   }
 }
+
 export async function InitializeDeviceManager() {
   // FIX-ME(ssilver): How should we handle the case of the devices that are "live" different from
   // what the Assistant knows about through "sync"?
