@@ -20,7 +20,7 @@
 // to the nodejs-poolController webservice here https://github.com/tagyoureit/nodejs-poolController.
 'use strict';
 import { AxiosInstance, AxiosResponse } from 'axios';
-import { LightingConfiguration, PoolState } from './PoolControllerMessages';
+import { LightingConfiguration, PoolState } from './poolControllerMessages';
 
 export function setHeatMode(instance: any, id: number, on: boolean) {
   return instance.put('/state/body/heatMode', {

@@ -26,6 +26,7 @@ import axios, { AxiosInstance } from 'axios';
 import { google } from 'googleapis';
 import { AcquireDeviceManager, LightModeNames, InitializeDeviceManager } from './devices';
 import { PoolStateHelper, getState } from './poolCommunication';
+import { SmartHomeV1Request } from 'actions-on-google';
 
 export const logger = require('pino')()
 
@@ -218,37 +219,45 @@ async function HandleIntent(requestPayload: { intent: any; body: any; }) {
   return responseBody;
 }
 
+function RpcRequestRefPath(userId: string) {
+  return `/rpcRequest/${userId}`;
+}
+
+function RpcResponseRefPath(userId: string) {
+  return `/rpcResponse/${userId}`;
+}
+
 // Listen to a queue of requests represented as a /rpcRequest table in Firebase and responds to those requests by taking
 // action and writing the result back to the caller via the /rpcResponse table.
-var queue = new Queue(firebase.database().ref("/rpcRequest"), function (request: { requestId: any; payload: { intent: any; body: any; }; }, progress: (arg0: number) => void, resolve: () => void) {
-  // Read and process task data
-  logger.info("RpcRequest %o", request);
+function StartRpcQueueListener(userId: string) {
+  var queue = new Queue(firebase.database().ref(RpcRequestRefPath(userId)), 
+    function (request: { requestId: any; payload: { intent: string; body: SmartHomeV1Request; }; }, progress: (arg0: number) => void, resolve: () => void) {
+    // Read and process task data
+    logger.info(`${request.payload.body.requestId}: RpcRequest %o`, request);
 
-  // Do some work
-  progress(50);
+    // Do some work
+    progress(50);
 
-  // Finish the task asynchronously
-  setTimeout(async function () {
-    if ('requestId' in request && 'payload' in request) {
-      try {
-        let requestId = request.requestId;
-        let response = await HandleIntent(request.payload);
-        logger.info("RpcResponse to %o with %o.", requestId, response);
-        // Send message back.
-        let rpcResponseRef = firebase.database().ref(`/rpcResponse/${requestId}`);
-
-        rpcResponseRef.set(response);
-      } catch (error) {
-        logger.info(`Failed to process response ${error}`);
+    // Finish the task asynchronously
+    setTimeout(async function () {
+      if ('requestId' in request && 'payload' in request) {
+        try {
+          let requestId = request.requestId;
+          let response = await HandleIntent(request.payload);
+          logger.info("%o: RpcResponse to %o with %o.", request.payload.body.requestId, requestId, response);
+          // Send message back.
+          firebase.database().ref(`${RpcResponseRefPath(userId)}/${requestId}`).set(response);
+        } catch (error) {
+          logger.info(`Failed to process response ${error}`);
+        }
+      } else {
+        logger.info(`Invalid request (payload and requestId required) ${JSON.stringify(request)}`);
       }
-    } else {
-      logger.info(`Invalid request (payload and requestId required) ${JSON.stringify(request)}`);
-    }
 
-    resolve();
-  }, 1000);
-});
-
+      resolve();
+    }, 1000);
+  });
+}
 
 // Report tate to the homegraph.
 // states is essentially a deviceId key'd version of the state of
@@ -331,7 +340,7 @@ function testExecute() {
         payload: {
           commands: [
             {
-              devices: [
+              devices: [ 
                 {
                   id: 'Lights'
                 }
@@ -359,5 +368,6 @@ function testExecute() {
 InitializeDeviceManager().then(function (value) {
  // testExecute();
  // testQuery();
+  StartRpcQueueListener(USER_ID);
   reportStateForAllDevicesContinuously(10000);
 })
