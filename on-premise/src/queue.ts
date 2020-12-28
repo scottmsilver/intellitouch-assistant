@@ -306,7 +306,7 @@ async function reportStateForAllDevicesOnce() {
 // to the assistant.
 // NB: This structure a weird kind of JS thing, basically function sets
 // its own time out and then at the end of that it schedules itself.
-function reportStateForAllDevicesContinuously(timeoutMs: number) {
+function ReportStateForAllDevicesContinuously(timeoutMs: number) {
   try {
     reportStateForAllDevicesOnce();
     setTimeout(reportStateForAllDevicesOnce, timeoutMs);
@@ -365,9 +365,37 @@ function testExecute() {
   handleExecute(body).then((value) => console.log("got %o", value)).catch((error) => console.error("error:%o", error));
 }
 
-InitializeDeviceManager().then(function (value) {
- // testExecute();
- // testQuery();
-  StartRpcQueueListener(USER_ID);
-  reportStateForAllDevicesContinuously(10000);
+//data: "{"identityToken":"eyJhbGciOiJSUzI1NiIsImtpZCI6IjZhZGMxMDFjYzc0OThjMDljMDEwZGMzZDUxNzZmYTk3Yzk2MjdlY2IiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJhY2NvdW50cy5nb29nbGUuY29tIiwiYXpwIjoiOTc2MzYyNjQ3OTY5LW5xaWl1NmR1NThlamdlYmRnb21rcHBpNDhydHVtMjNyLmFwcHMuZ29vZ2xldXNlcmNvbnRlbnQuY29tIiwiYXVkIjoiOTc2MzYyNjQ3OTY5LW5xaWl1NmR1NThlamdlYmRnb21rcHBpNDhydHVtMjNyLmFwcHMuZ29vZ2xldXNlcmNvbnRlbnQuY29tIiwic3ViIjoiMTA3MjAxMDE2NDgxMDUyNTQzNzM2IiwiZW1haWwiOiJzY290dG1zaWx2ZXJAZ21haWwuY29tIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsImF0X2hhc2giOiJpSS03eWU0LTF6SXVHWEFtSTNld1NRIiwibmFtZSI6IlNjb3R0IFNpbHZlciIsInBpY3R1cmUiOiJodHRwczovL2xoMy5nb29nbGV1c2VyY29udGVudC5jb20vYS0vQU9oMTRHaFktYllkTEozNEtZdzRQenRuUDR1VXJOalhIRU4zUUdjTXM5bDRSZFk9czk2LWMiLCJnaXZlbl9uYW1lIjoiU2NvdHQiLCJmYW1pbHlfbmFtZSI6IlNpbHZlciIsImxvY2FsZSI6ImVuIiwiaWF0IjoxNjA4Njc0MzY5LCJleHAiOjE2MDg2Nzc5NjksImp0aSI6IjI1NzIyMjYzZmQxZjFlZGUzOGVmMTJjOGEwMWVkNDlkYmVjZjJhNWQifQ.mtqai6uPSQ2kefDhXqXccguw3HCwcDXc9lGr-bJa7_zFjNQodfM3wiYuixlLRUwqXChnjSUEKTvmVZWY2apZCzH7XfB1TdbiuqhkKf5gcNxlOXxFo4mva0ggCa4--_SwF_yTGL7hEtUowtWwGBqD6KfF2YtC-c0SX7xBjGpDPXMo7gIKf2KbM8bv5jcW4fUAgiuFkiUvs6S0Ky5_0rt4jsG8CxVR5zvNQn0YaYVWp8DbIdfw5AAGO8rwj_Btz19aP_QVfBCCoYyRfms33EyPnnvC_T03xXMOzXwKV0RY89EteU3VO_zEc7kRYBI0T3rMC75lAqF7585epSQRGMXQpA","name":"Scott Silver"}"
+
+async function testFirebaseAuth() {
+  const { OAuth2Client } = require('google-auth-library');
+  const clientId = "976362647969-nqiiu6du58ejgebdgomkppi48rtum23r.apps.googleusercontent.com";
+  const client = new OAuth2Client(clientId);
+  async function verify() {
+    const ticket = await client.verifyIdToken({
+      idToken: "eyJhbGciOiJSUzI1NiIsImtpZCI6IjZhZGMxMDFjYzc0OThjMDljMDEwZGMzZDUxNzZmYTk3Yzk2MjdlY2IiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJhY2NvdW50cy5nb29nbGUuY29tIiwiYXpwIjoiOTc2MzYyNjQ3OTY5LW5xaWl1NmR1NThlamdlYmRnb21rcHBpNDhydHVtMjNyLmFwcHMuZ29vZ2xldXNlcmNvbnRlbnQuY29tIiwiYXVkIjoiOTc2MzYyNjQ3OTY5LW5xaWl1NmR1NThlamdlYmRnb21rcHBpNDhydHVtMjNyLmFwcHMuZ29vZ2xldXNlcmNvbnRlbnQuY29tIiwic3ViIjoiMTA3MjAxMDE2NDgxMDUyNTQzNzM2IiwiZW1haWwiOiJzY290dG1zaWx2ZXJAZ21haWwuY29tIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsImF0X2hhc2giOiJ4Y3V0eFU4R2tWZWwwVVE4SVBNTHdnIiwibmFtZSI6IlNjb3R0IFNpbHZlciIsInBpY3R1cmUiOiJodHRwczovL2xoMy5nb29nbGV1c2VyY29udGVudC5jb20vYS0vQU9oMTRHaFktYllkTEozNEtZdzRQenRuUDR1VXJOalhIRU4zUUdjTXM5bDRSZFk9czk2LWMiLCJnaXZlbl9uYW1lIjoiU2NvdHQiLCJmYW1pbHlfbmFtZSI6IlNpbHZlciIsImxvY2FsZSI6ImVuIiwiaWF0IjoxNjA4Njc5MDA3LCJleHAiOjE2MDg2ODI2MDcsImp0aSI6IjNkYjY1MmEwMTJhZGQyNjA2YTYwMjAyM2Y1ZDg1M2ZmOWE3MGRjNjcifQ.Nqscya_V8ArVovz6Iw2xPBnlAYTIt0Z_QlqYtvSoHQoVhUwpXHCGQe0pxpsiq-1s__NSthBtBzdw15AwHcAE23WTa5wGOd-St9Tip8XMYc0Ka905EVl9MnBiAfks0I7tQeV-3qeEWjBhX2Dg6Py__kgMjZZNfa79GVHAVqsI0Zw8WmGhFPTpoZNUnBuU3AflG9jZHPP8bGeSrCPng4sDzN3cPp_Iu8-b7oA-UXoKPG4HaSxW_RLGCl7oq_qzLAUTHTRgZccF6fl42q_oh8IvxYPV7DMqxdLK21OGnMtXr_0jm-d-jOLENV_YVoW3zvkQpaaEsGaYKLUiWmVxUYQqMg",     audience: clientId,  // Specify the CLIENT_ID of the app that accesses the backend
+      // Or, if multiple clients access the backend:
+      //[CLIENT_ID_1, CLIENT_ID_2, CLIENT_ID_3]
+    });
+    const payload = ticket.getPayload();
+    const userid = payload['sub'];
+
+    logger.info(userid)
+    // If request specified a G Suite domain:
+    // const domain = payload['hd'];
+  }
+
+  verify().catch(console.error);
+
+}
+
+testFirebaseAuth().then( () =>
+{
+
+  InitializeDeviceManager().then( (value) =>  {
+  // testExecute();
+  // testQuery();
+    StartRpcQueueListener(USER_ID);
+    ReportStateForAllDevicesContinuously(10000);
+  })
 })
