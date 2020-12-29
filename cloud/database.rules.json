@@ -1,7 +1,16 @@
 {
   "rules": {
-    ".read": "true",
-    ".write": "true"
+    "rpcRequest": {
+      "$uid": {
+        ".read": "auth.uid == $uid",
+        ".write": "auth.uid == $uid"
+      }
+    },
+    "rpcResponse": {
+      "$uid": {
+        ".read": "auth.uid == $uid",
+        ".write": "auth.uid == $uid"
+      }
+    }
   }
 }
-

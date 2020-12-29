@@ -5,7 +5,8 @@
     "sourceMap": true,
     "target": "ES6",
     "lib": [
-        "esnext.asynciterable"
+      "dom", // See https://github.com/firebase/firebase-js-sdk/issues/880#issuecomment-401896926 
+      "esnext.asynciterable"
     ],
   },
   "compileOnSave": true,
