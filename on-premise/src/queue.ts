@@ -23,31 +23,11 @@
 
 import FirebaseUser from 'firebase';
 import axios, { AxiosInstance } from 'axios';
-import { google } from 'googleapis';
-import { AcquireDeviceManager, LightModeNames, InitializeDeviceManager } from './devices';
+import { AcquireDeviceManager, InitializeDeviceManager } from './devices';
 import { PoolStateHelper, getState } from './poolCommunication';
 import { SmartHomeV1Request } from 'actions-on-google';
-
+const Queue = require('firebase-queue');
 export const logger = require('pino')()
-
-// Initialize the app with a service account, granting admin privileges
-/** @type {any} */
-const serviceAccount = require('./service-account.json');
-
-const auth = new google.auth.GoogleAuth({
-  credentials: serviceAccount,
-  scopes: ['https://www.googleapis.com/auth/homegraph']
-});
-const homegraph = google.homegraph({
-  version: 'v1',
-  auth: auth,
-});
-
-const USER_ID = '123';
-
-var Queue = require('firebase-queue');
-
-// https://firebase.google.com/docs/firestore/solutions/role-based-access
 
 // FIX-ME use interfaces from type description
 async function handleQuery(body: any) {
@@ -129,13 +109,13 @@ async function ExecuteOnDeviceLocally(axiosInstance: AxiosInstance, deviceId: st
   return promise;
 }
 
-// FIX-ME(ssilver): Fix the types of this to use the real types
-// instead of the any.
+
+// Handle the SYNC intent.
 async function handleSync(body: { requestId: any; }) {
   return {
     requestId: body.requestId,
     payload: {
-      agentUserId: USER_ID,
+      agentUserId: gSmartHomeHandler.uid,
       devices: AcquireDeviceManager().getSyncResponse(),
     },
   };
@@ -260,26 +240,24 @@ function StartRpcQueueListener(userId: string) {
 // states is essentially a deviceId key'd version of the state of
 // the device. Thate state of the device is identical
 // to the "query" intent response.
-async function reportState(states: { [deviceId: string]: any; }) {
+async function reportState(idToken: string, states: { [deviceId: string]: any; }) {
   logger.info("Reporting state for %o", states)
 
-  const requestBody = {
-    requestId: 'ff36a3cc',
-    agentUserId: USER_ID,
-    payload: {
-      devices: {
-        states: states
-      },
+  const reportStateResponse = await axios.post(
+    'https://us-central1-pool-eb7ed.cloudfunctions.net/reportstate',
+    {
+      states: states
     },
-  };
-  logger.info(`Reporting state ${JSON.stringify(requestBody)}`);
-  const res = await homegraph.devices.reportStateAndNotification({
-    requestBody
-  });
-  logger.info('Report state response: %o %o', res.status, res.data);
+    { headers:  {authorization: `Bearer ${idToken}`}});
+
+  if (reportStateResponse.status !== 200) {
+    throw Error("Couldn't report state: " + reportStateResponse.data);
+  }
+  
+  logger.info('Report state response: %o %o', reportStateResponse.status, reportStateResponse.data);
 }
 
-async function reportStateForAllDevicesOnce() {
+async function reportStateForAllDevicesOnce(idToken: string, timeoutMs: number) {
   try {
     let configResponse = await getState(axiosInstance);
     if (configResponse.status != 200) {
@@ -292,9 +270,11 @@ async function reportStateForAllDevicesOnce() {
       states[device.name] = device.googleQueryPayload(poolData);
     }
 
-    await reportState(states);
+    await reportState(idToken, states);
   } catch (e) {
     logger.error("reportStateForAllDevicesOnce: %o", e);
+  } finally {
+    setTimeout(() => reportStateForAllDevicesOnce(idToken, timeoutMs), timeoutMs);
   }
 }
 
@@ -303,55 +283,68 @@ async function reportStateForAllDevicesOnce() {
 // to the assistant.
 // NB: This structure a weird kind of JS thing, basically function sets
 // its own time out and then at the end of that it schedules itself.
-function ReportStateForAllDevicesContinuously(timeoutMs: number) {
+function ReportStateForAllDevicesContinuously(idToken: string, timeoutMs: number) {
   try {
-    reportStateForAllDevicesOnce();
-    setTimeout(reportStateForAllDevicesOnce, timeoutMs);
+    setTimeout(() => reportStateForAllDevicesOnce(idToken, timeoutMs), timeoutMs);
   } catch (error) {
     logger.error("updatePoolData: Unexpected failure: %o", error);
   }
 }
 
-async function InitializeFirebase(): Promise<string> {
-  const firebaseConfig = {
-    apiKey: "AIzaSyAYyEQZNdI8FULr0oNbPn9DZBt4oD0sRo0",
-    authDomain: "pool-eb7ed.firebaseapp.com",
-    databaseURL: "https://pool-eb7ed.firebaseio.com",
-    projectId: "pool-eb7ed",
-    storageBucket: "pool-eb7ed.appspot.com",
-    messagingSenderId: "976362647969",
-    appId: "1:976362647969:web:d6c1879ad4d3ad3d171be0"
-  };
+class SmartHomeHandler {
+  uid: string;
+  idToken: string;
 
-  FirebaseUser.initializeApp(firebaseConfig);
-
-  const refreshToken = "1//04Z_diN0Sm6j2CgYIARAAGAQSNwF-L9IrI05stpOIsbb5hyb6eZBGjJ-1LbA7dsnB45-c8kw-rvmctsyO2Tc9__OmVYFQr7bkB_o";
-
-  const tokenResponse = await axios.post(
-    'https://us-central1-pool-eb7ed.cloudfunctions.net/getAccessTokenFromRefreshToken',
-    {
-      refreshToken: refreshToken
-    })
-
-  if (tokenResponse.status !== 200) {
-    throw Error("Couldn't get refreshToken")
+  constructor(uid: string, idToken: string) {
+    this.uid = uid;
+    this.idToken = idToken;
   }
 
-  const credential = FirebaseUser.auth.GoogleAuthProvider.credential(tokenResponse.data.id_token);
-  // fix me I think this can return a new refreshToken which we need to store.
-  const userCredential = await FirebaseUser.auth().signInWithCredential(credential);
-  if (!userCredential.user?.uid) {
-    throw new Error("Couldn't get firebase uid.");
-  }
+  static async Initialize(refreshToken: string): Promise<SmartHomeHandler> {
+    const firebaseConfig = {
+      apiKey: "AIzaSyAYyEQZNdI8FULr0oNbPn9DZBt4oD0sRo0",
+      authDomain: "pool-eb7ed.firebaseapp.com",
+      databaseURL: "https://pool-eb7ed.firebaseio.com",
+      projectId: "pool-eb7ed",
+      storageBucket: "pool-eb7ed.appspot.com",
+      messagingSenderId: "976362647969",
+      appId: "1:976362647969:web:d6c1879ad4d3ad3d171be0"
+    };
 
-  return userCredential.user?.uid;
+    FirebaseUser.initializeApp(firebaseConfig);
+
+//    const refreshToken = "1//04Z_diN0Sm6j2CgYIARAAGAQSNwF-L9IrI05stpOIsbb5hyb6eZBGjJ-1LbA7dsnB45-c8kw-rvmctsyO2Tc9__OmVYFQr7bkB_o";
+
+    const tokenResponse = await axios.post(
+      'https://us-central1-pool-eb7ed.cloudfunctions.net/getAccessTokenFromRefreshToken',
+      {
+        refreshToken: refreshToken
+      })
+
+    if (tokenResponse.status !== 200) {
+      throw Error("Couldn't get refreshToken")
+    }
+
+    const credential = FirebaseUser.auth.GoogleAuthProvider.credential(tokenResponse.data.id_token);
+    // fix me I think this can return a new refreshToken which we need to store.
+    const userCredential = await FirebaseUser.auth().signInWithCredential(credential);
+    if (!userCredential.user?.uid) {
+      throw new Error("Couldn't get firebase uid.");
+    }
+
+    return new SmartHomeHandler(userCredential.user?.uid, await userCredential.user.getIdToken())
+  }
 }
 
+var gSmartHomeHandler: SmartHomeHandler;
+
 async function main() {
-  const uid = await InitializeFirebase();
+  const configuration = require('./config.json');
+
+  gSmartHomeHandler = await SmartHomeHandler.Initialize(configuration.refreshToken);
   await InitializeDeviceManager();
-  StartRpcQueueListener(uid);
-  ReportStateForAllDevicesContinuously(10000);
+  StartRpcQueueListener(gSmartHomeHandler.uid);
+  ReportStateForAllDevicesContinuously(gSmartHomeHandler.idToken, 10000);
 }
 
 main().catch(error => console.error(error));

@@ -104,13 +104,14 @@ exports.faketoken = Functions.https.onRequest(async (request, response) => {
 
   // https://developers.google.com/assistant/identity/oauth2?oauth=code#flow
   // FIX-ME Check client secret here.
+  // FIX-ME clean up this cesspool.
 
   let obj;
   if (grantType === 'authorization_code') {
     // Exchange the code for the 
     const code = request.query.code ? request.query.code : request.body.code;
     const codeContents: AuthorizationCodeContents = jws.decode(code).payload as AuthorizationCodeContents;
-    const userCredential =  await loginAsUid(codeContents.uid);
+    const userCredential = await loginAsUid(codeContents.uid);
     const idTokenResult = await userCredential.user.getIdTokenResult();
 
     obj = {
@@ -219,7 +220,7 @@ async function GetUserIdFromHeaders(headers: Headers): Promise<string> {
   return decodedIdToken.uid;
 }
 
-// Handle the given intent by makign, via MakeRpcRquest, a local call to our devices.
+// Handle the given intent by making, via MakeRpcRquest, a local call to our devices.
 // Returns the value of the execution or {} if there was an error.
 async function handleIntent(intentName: string, body: SmartHomeV1Request, headers: Headers) {
   const userId = await GetUserIdFromHeaders(headers);
@@ -259,6 +260,9 @@ app.onDisconnect((body: SmartHomeV1Request, headers: Headers) => {
 
 exports.smarthome = Functions.https.onRequest(app);
 
+// https://developers.google.com/assistant/smarthome/develop/request-sync
+// FIX-ME this doesn't work.
+// Allow client to request a synch.
 exports.requestsync = Functions.https.onRequest(async (request, response) => {
   Functions.logger.info(`Request SYNC for user ${USER_ID}`);
   response.set('Access-Control-Allow-Origin', '*');
@@ -277,11 +281,40 @@ exports.requestsync = Functions.https.onRequest(async (request, response) => {
   }
 });
 
-// Vestigial reportstate; now handled on-premisis (maybe this will have to move back.)
-// FIX-ME
-// eslint-disable-next-line @typescript-eslint/no-empty-function
-exports.reportstate = (() => {
-})
+
+// Report tate to the homegraph.
+// states is essentially a deviceId key'd version of the state of
+// the device. Thate state of the device is identical
+// to the "query" intent response.
+// We are essentially pretending to be a function that Google Actions calls
+// by imitiating the Bearer Authorization protocol.
+exports.reportstate = Functions.https.onRequest(async (request, response) => {
+  const uid: string = await GetUserIdFromHeaders(request.headers);
+  const states = request.body.states;
+  
+  const requestBody = {
+    requestId: Nanoid(),
+    agentUserId: uid,
+    payload: {
+      devices: {
+        states: states,
+      },
+    },
+  };
+  Functions.logger.info(`Reporting state ${JSON.stringify(requestBody)}`);
+  try {
+    const homegraphResponse = await homegraph.devices.reportStateAndNotification({
+      requestBody,
+    });
+
+    Functions.logger.info('Report state response: ', homegraphResponse.status, homegraphResponse.data);
+    response.status(200).json(homegraphResponse.data);
+  } catch (error) {
+    Functions.logger.info('Report state exception. ', error);
+    response.status(500).json({error: error});
+  }
+});
+
 
 interface LinkCodeRefreshToken {
   linkId: string;

@@ -128,3 +128,4 @@ lightgroups.json
 references.json
 .vscode/
 cloud/.firebaserc
+on-premise/src/config.json
