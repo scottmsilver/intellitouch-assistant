@@ -31,8 +31,8 @@ import { admin } from 'googleapis/build/src/apis/admin';
 import e = require('express');
 
 
-const GOOGLE_ACTIONS_COOLIO_POOLIO_CLIENT_ID = '976362647969-nqiiu6du58ejgebdgomkppi48rtum23rd.apps.googleusercontent.com';
-const GOOGLE_COOLIO_POOLIO_CLIENT_ID =         '976362647969-nqiiu6du58ejgebdgomkppi48rtum23rd.apps.googleusercontent.com'
+const GOOGLE_ACTIONS_COOLIO_POOLIO_CLIENT_ID = '976362647969-nqiiu6du58ejgebdgomkppi48rtum23r.apps.googleusercontent.com';
+const GOOGLE_COOLIO_POOLIO_CLIENT_ID =         '976362647969-nqiiu6du58ejgebdgomkppi48rtum23r.apps.googleusercontent.com'
                             //                  976362647969-nqiiu6du58ejgebdgomkppi48rtum23rd.apps.googleusercontent.com
 // The following firebase runtime configuration must be set
 
