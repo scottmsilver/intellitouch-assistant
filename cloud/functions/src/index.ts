@@ -28,8 +28,22 @@ import { assert } from 'console';
 import * as jws from 'jws';
 import { URL } from 'url';
 import { admin } from 'googleapis/build/src/apis/admin';
+import e = require('express');
 
-// linking guide https://developers.google.com/assistant/identity/oauth2?oauth=code#flow
+
+const GOOGLE_ACTIONS_COOLIO_POOLIO_CLIENT_ID = '976362647969-nqiiu6du58ejgebdgomkppi48rtum23rd.apps.googleusercontent.com';
+const GOOGLE_COOLIO_POOLIO_CLIENT_ID =         '976362647969-nqiiu6du58ejgebdgomkppi48rtum23rd.apps.googleusercontent.com'
+                            //                  976362647969-nqiiu6du58ejgebdgomkppi48rtum23rd.apps.googleusercontent.com
+// The following firebase runtime configuration must be set
+
+// Functions.config().identity.client_secret: the client secret from the Google account used with your poolio coolio service (not Google Actions)
+// Functions.config().google_actions.client_secret: the client secret associated with the Google Actions client id that comes from your Google Assistant Console
+//
+// Do this by running from the command line.
+//
+// firebase functions:config:set google_actions.client_secret='<MY SECRET>'
+// firebase functions:config:set identity.client_secret='<MY SECRET>'
+// firebase deploy --only functions
 
 // Initialize Application and Firebase
 // NB: This is implicit initialization since we are running in Google Cloud
@@ -73,6 +87,7 @@ async function loginAsUid(uid: string) {
   return userCredential;
 }
 
+// Represents part of the response from the Google token server 
 interface PartialRefreshTokenResponse {
   expires_in: string,
   id_token: string,
@@ -80,6 +95,8 @@ interface PartialRefreshTokenResponse {
 };
 
 // From https://firebase.google.com/docs/reference/rest/auth/
+// 
+// Return a PartialRefreshTokenResponse from the Google token server.
 async function refreshTokenToIdToken(refreshToken: string): Promise<PartialRefreshTokenResponse> {
   // Generate a refresh token from the authorization code by calling the Google service.
   const tokenResponse = await Axios.post(
@@ -90,10 +107,32 @@ async function refreshTokenToIdToken(refreshToken: string): Promise<PartialRefre
     })
 
   if (tokenResponse.status !== 200) {
-    throw Error("Bad response from oauth.")
+    throw Error("Bad response from oauth. " + tokenResponse.data)
   }
 
   return tokenResponse.data as PartialRefreshTokenResponse;
+}
+
+// Return an idToken and a refreshToken or return an idToken.
+// Getting one of these let you pretend to be the user.
+//
+// This performs one of two operations:
+//
+// (1) transform a an authorization_code (which is really a tokenzied Coolio Poolio/Firebase uid)
+//     into an idToken/refreshToken pair.
+// (2) transform a refreshToken into an idToken (since idTokens expire)
+//
+// This is "secure" because Google Actions sends us a client_secret that we ensure is correct
+// before we hand out an idToken.
+// https://developers.google.com/assistant/identity/oauth2?oauth=code#flow
+
+// Response schema dictated by auoth.
+interface TokenResponse {
+  error?: string;
+  token_type?: string;
+  access_token?: string;
+  expires_in?: number | string;
+  refresh_token?: string;
 }
 
 exports.faketoken = Functions.https.onRequest(async (request, response) => {
@@ -102,39 +141,53 @@ exports.faketoken = Functions.https.onRequest(async (request, response) => {
   const HTTP_STATUS_OK = 200;
   Functions.logger.log(`Grant type ${grantType}`);
 
-  // https://developers.google.com/assistant/identity/oauth2?oauth=code#flow
-  // FIX-ME Check client secret here.
-  // FIX-ME clean up this cesspool.
+  const client_id = request.query.client_id ? request.query.client_id : request.body.client_id;
+  const client_secret = request.query.client_secret ? request.query.client_secret : request.body.client_secret;
 
-  let obj;
-  if (grantType === 'authorization_code') {
+  if (client_id !== GOOGLE_ACTIONS_COOLIO_POOLIO_CLIENT_ID || client_secret !== Functions.config().google_actions.client_secret) {
+    response.status(400).json({ "error": "invalid_grant" });
+  } else {
+    let tokenResponse: TokenResponse = { error: "invalid_grant" };
+    let error: boolean = true;
+
+    switch (grantType) {
+      case 'authorization_code': 
     // Exchange the code for the 
     const code = request.query.code ? request.query.code : request.body.code;
     const codeContents: AuthorizationCodeContents = jws.decode(code).payload as AuthorizationCodeContents;
     const userCredential = await loginAsUid(codeContents.uid);
     const idTokenResult = await userCredential.user.getIdTokenResult();
 
-    obj = {
+        tokenResponse = {
       token_type: 'Bearer',
       access_token: idTokenResult.token,
       refresh_token: userCredential.user.refreshToken,
       expires_in: new Date(idTokenResult.expirationTime).getSeconds() - new Date().getSeconds(),
     };
-  } else if (grantType === 'refresh_token') {
+        error = false;
+        break;
+      case 'refresh_token':
     const refresh_token = request.body.refresh_token;
     const refreshResponse = await refreshTokenToIdToken(refresh_token);
 
-    obj = {
+        tokenResponse = {
       token_type: 'Bearer',
       access_token: refreshResponse.id_token,
       expires_in: refreshResponse.expires_in,
     };
+        error = false;
+        break;
+      default:
+        tokenResponse = {
+          error: "no such grant_type: " + grantType,
   }
+    }
 
-  Functions.logger.info("Returning: ", obj);
+    Functions.logger.info("Returning: ", tokenResponse);
 
   response.status(HTTP_STATUS_OK)
-    .json(obj);
+      .json(tokenResponse);
+  }
 });
 
 const app = smarthome();
@@ -146,8 +199,6 @@ function RpcRequestRefPath(userId: string) {
 function RpcResponseRefPath(userId: string) {
   return `/rpcResponse/${userId}`;
 }
-
-
 
 // Make an rpc to where our devices are by pushing a message through a queue
 // and then waiting for the response.
@@ -200,6 +251,8 @@ async function MakeRpcRequest(db: FirebaseAdmin.database.Database, userId: strin
   return rpcResponse;
 }
 
+// Return the Bearer string from a header that looks like
+// "Bearer CJKDKFDJLFDKJDFL##!!" or undefined.
 function ExtractBearer(authorization: string) {
   const matches = /Bearer (.+)/gm.exec(authorization);
   if (!matches || matches.length < 1) {
@@ -208,15 +261,14 @@ function ExtractBearer(authorization: string) {
 
   return matches[1];
 }
+
+// Return the uid of the current user From the given idToken passed in.
+// We also verify that the token is valid :-)
 async function GetUserIdFromHeaders(headers: Headers): Promise<string> {
   // Authorization: Bearer ACCESS_TOKEN
-  Functions.logger.info("headers: ", JSON.stringify(headers));
   const authorization = headers.authorization as string;
-  Functions.logger.info("auhthorization header: ", authorization)
   const idToken = ExtractBearer(authorization);
-  Functions.logger.info("idToken: ", idToken);
   const decodedIdToken = await FirebaseAdmin.auth().verifyIdToken(idToken);
-
   return decodedIdToken.uid;
 }
 
@@ -281,12 +333,19 @@ exports.requestsync = Functions.https.onRequest(async (request, response) => {
   }
 });
 
-// Report state to the homegraph.
-// states is essentially a deviceId key'd version of the state of
+// Report the state of our devices to the homegraph (so Google doesn't have
+// to ask all the devices each time to find out if a light is on, for example.)
+//
+// "states" field is essentially a deviceId key'd version of the state of
 // the device. Thate state of the device is identical
 // to the "query" intent response.
-// We are essentially pretending to be a function that Google Actions calls
-// by imitiating the Bearer Authorization protocol.
+//
+// Our on-premise client cannot call the homegraph directly as it is a privileged
+// operation so we are doing it for them.
+//
+// They are calling us as Google Actions calls us with the bearer field set.
+// which we will extract to make sure they are allowed to call us (as we would
+// the Google Actions console)
 exports.reportstate = Functions.https.onRequest(async (request, response) => {
   const uid: string = await GetUserIdFromHeaders(request.headers);
   const states = request.body.states;
@@ -300,7 +359,9 @@ exports.reportstate = Functions.https.onRequest(async (request, response) => {
       },
     },
   };
+
   Functions.logger.info(`Reporting state ${JSON.stringify(requestBody)}`);
+
   try {
     const homegraphResponse = await homegraph.devices.reportStateAndNotification({
       requestBody,
@@ -314,17 +375,16 @@ exports.reportstate = Functions.https.onRequest(async (request, response) => {
   }
 });
 
-
-interface LinkCodeRefreshToken {
-  linkId: string;
-  refreshTokenId: string;
-}
-
 // Manage a simple table of LinkCodeRefreshToken at RefreshTokens
 // The protocol is that you can store and entry and read it
 // exactly once. We do this because we want ot be careful with
 // refreshTokens which are keys to the castle.
 // The structure is /RefreshTokens/{linkId}/{LinkCodeRefreshToken Object}
+interface LinkCodeRefreshToken {
+  linkId: string;
+  refreshTokenId: string;
+}
+
 class LinkCodeRefreshTokenHelper {
   db: FirebaseAdmin.database.Database;
 
@@ -398,7 +458,7 @@ exports.storeRefreshTokenFromAuthorizationCode = Functions.https.onRequest(async
     const tokenResponse = await Axios.post(
       'https://oauth2.googleapis.com/token', 
       {
-        client_id: "976362647969-nqiiu6du58ejgebdgomkppi48rtum23r.apps.googleusercontent.com",
+        client_id: GOOGLE_COOLIO_POOLIO_CLIENT_ID,
         client_secret: client_secret, 
         grant_type: "authorization_code",
         redirect_uri: "postmessage",        // This must match the requesting redirect_uri on the call to getOfflineAccess()  
@@ -430,7 +490,6 @@ exports.storeRefreshTokenFromAuthorizationCode = Functions.https.onRequest(async
   }
 });
 
-
 // Returns the freshTokenFromLinkCode and then deletes it.
 // input is from a post with the variable linkId set to the value returned by the cloud function storeRefreshTokenFromAuthorizationCode()
 // 
@@ -448,8 +507,7 @@ exports.getRefreshTokenFromLinkCode = Functions.https.onRequest(async (request: 
   response.status(HTTP_STATUS_OK).json({ refreshToken: refreshToken });
 });
 
-// Return an access token (i.e. idToken) given a refreshToken for the Coolio Poolio Google Credential client that represents
-// the users who may access to Coolio Poolio (NOT the Google Assistant.)
+// Return an access token (i.e. idToken) given a refreshToken for the Coolio Poolio Google Credential client (not the Firebase refreshToken)
 exports.getAccessTokenFromRefreshToken = Functions.https.onRequest(async (request: Functions.https.Request, response: Functions.Response<any>) => {
   const refreshToken = request.body.refreshToken;
   const HTTP_STATUS_OK = 200;
@@ -467,7 +525,7 @@ exports.getAccessTokenFromRefreshToken = Functions.https.onRequest(async (reques
     const tokenResponse = await Axios.post(
       'https://oauth2.googleapis.com/token',
       {
-        client_id: "976362647969-nqiiu6du58ejgebdgomkppi48rtum23r.apps.googleusercontent.com",
+        client_id: GOOGLE_COOLIO_POOLIO_CLIENT_ID,
         client_secret: client_secret,
         grant_type: "refresh_token",
         redirect_uri: "postmessage",        // This must match the requesting redirect_uri on the call to getOfflineAccess()  
@@ -487,9 +545,7 @@ exports.getAccessTokenFromRefreshToken = Functions.https.onRequest(async (reques
 })
 
 
-
-
-// Authorize the Actions by Google user to pose as the Firebase user which is authorized to
+// Authorize the Actions by Google user to pose as the Firebase user who is authorized to
 // make changes to your pool. 
 //
 // Logically think of oauthAuthorize as a function that safely allows a coolio polio user 
@@ -513,11 +569,13 @@ exports.getAccessTokenFromRefreshToken = Functions.https.onRequest(async (reques
 //    state: 'ABdO3MWl9GwopgbAu1ytsdlMKj79VewO0kyu49ZfSy4ntwVsBxWYckBmxfa6fawPmEVOea2aE20lsVk_f1BzxjEFG_SjlhXq7fQc9VuuqDWQDCWp-A7txswwmUpr1LmYKVoocBe7di0UACcbhuQpGJvSlL0hrC0N33ehvZEWXtZCNesdL62AK5HonUBVur1y4ewgKz6FQevqkiLm8QE68SNmql6eLCl82nnDLb6UuwxTTeG3LyTQ_ev2BizDNd_l9SKOee6cnnvA-qdo252jLQH65jHdI2L2CSLrNWLqipCl4TI256QFwdCoL2-uVatiK7n3lvkh5h_P5b3evxVKiyjervtncGBVx_DLyGz0ABFpHmF3xfd2k32KkNJXMQeNVCT0wetCkryACYIQzA5MgnGWkic_fHlqybqttSL1BScVf82URs_sejsBKI1PJAtrj_4zZ-WRBrZjj9Ld6LYYDX_-YJaKwKkBLVc9HsZyd77Inf3OjFTnT7CYLF3iylqrvWx6vmTiy0oQQdxO3xoM1MVwI7KU_0qnuw',
 //    user_locale: 'en-US'
 // }
+// This comes from the Google Actions console this is the client_id of the auth entity that represents the Google Actions client (for our devices)
 exports.oauthAuthorize = Functions.https.onRequest(async (request: Functions.https.Request, response: Functions.Response<any>) => {
   const uid = request.query.uid;
   const client_id = request.query.client_id;
-  // This comes from the Google Actions console this is the client_id of the auth entity that represents the Google Actions client (for our devices)
-  assert(client_id === '976362647969-nqiiu6du58ejgebdgomkppi48rtum23rd.apps.googleusercontent.com');
+
+  // FIX_ME change this to return an error response if these don't match.
+  assert(client_id === GOOGLE_ACTIONS_COOLIO_POOLIO_CLIENT_ID);
   const redirect_uri:string = request.query.redirect_uri as string;
   assert(redirect_uri.endsWith('r/pool-eb7ed'));
   const state = request.query.state;
@@ -550,7 +608,7 @@ exports.oauthAuthorize = Functions.https.onRequest(async (request: Functions.htt
   <meta name="google-signin-client_id" content="976362647969-nqiiu6du58ejgebdgomkppi48rtum23r.apps.googleusercontent.com">
   <meta name="google-signin-cookiepolicy" content="single_host_origin">
 
-  <title>Google Sign In Example</title>
+  <title>Sign in to Coolio Poolio</title>
 
   <!-- Material Design Theming -->
   <link rel="stylesheet" href="https://code.getmdl.io/1.1.3/material.orange-indigo.min.css">
@@ -569,7 +627,6 @@ exports.oauthAuthorize = Functions.https.onRequest(async (request: Functions.htt
   <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
 
   <script type="text/javascript">
-
     function onSignIn(googleUser)  {
       // We need to register an Observer on Firebase Auth to make sure auth is initialized.
       var unsubscribe = firebase.auth().onAuthStateChanged(function(firebaseUser) {
@@ -600,11 +657,12 @@ exports.oauthAuthorize = Functions.https.onRequest(async (request: Functions.htt
             }
           });
 
+          // User just signed in, redirect them back to this same function with the
+          // uid attached.
           window.location.replace(window.location.href + "&uid=" + firebaseUser.uid);
         } 
         
-
-        // User was signed in or they signed in.
+        // User was signed in or they signed in - redirect them to the authorization url.
         fullRedirectUrl = \`\${redirect_uri}?code=\${authorization_code}&state=\${state}\`
         window.location.replace(fullRedirectUrl);
       });
@@ -701,7 +759,6 @@ exports.oauthAuthorize = Functions.https.onRequest(async (request: Functions.htt
 
   <main class="mdl-layout__content mdl-color--grey-100">
     <div class="mdl-cell mdl-cell--12-col mdl-cell--12-col-tablet mdl-grid">
-
       <!-- Container for the demo -->
       <div class="mdl-card mdl-shadow--2dp mdl-cell mdl-cell--12-col mdl-cell--12-col-tablet mdl-cell--12-col-desktop">
         <div class="mdl-card__title mdl-color--light-blue-600 mdl-color-text--white">
@@ -722,7 +779,6 @@ exports.oauthAuthorize = Functions.https.onRequest(async (request: Functions.htt
           </div>
         </div>
       </div>
-
     </div>
   </main>
 </div>
