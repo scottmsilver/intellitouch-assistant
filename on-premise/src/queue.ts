@@ -29,7 +29,7 @@ import { SmartHomeV1Request } from 'actions-on-google';
 const Queue = require('firebase-queue');
 export const logger = require('pino')()
 
-// FIX-ME use interfaces from type description
+// Handle the QUERY intent.
 async function handleQuery(body: any) {
   interface QueryResult {
     requestId: string;
@@ -73,12 +73,6 @@ async function handleQuery(body: any) {
   return response;
 }
 
-
-export const axiosInstance: AxiosInstance = axios.create({
-  baseURL: 'http://poolpi:4200/',
-  timeout: 10000,
-});
-
 export function ExecuteOnDeviceLocallyException(message: any, status: number, data: any) {
   return {
     message: message,
@@ -109,7 +103,6 @@ async function ExecuteOnDeviceLocally(axiosInstance: AxiosInstance, deviceId: st
   return promise;
 }
 
-
 // Handle the SYNC intent.
 async function handleSync(body: { requestId: any; }) {
   return {
@@ -121,6 +114,7 @@ async function handleSync(body: { requestId: any; }) {
   };
 }
 
+// Handle EXECUTE intent.
 async function handleExecute(body: { inputs?: any; requestId?: any; }) {
   const {
     requestId
@@ -163,6 +157,7 @@ async function handleExecute(body: { inputs?: any; requestId?: any; }) {
     }
   }
 
+  // Execute all evice actions in parallel.
   await Promise.all(executePromises);
 
   return {
@@ -257,7 +252,7 @@ async function reportState(idToken: string, states: { [deviceId: string]: any; }
   logger.info('Report state response: %o %o', reportStateResponse.status, reportStateResponse.data);
 }
 
-async function reportStateForAllDevicesOnce(idToken: string, timeoutMs: number) {
+async function reportStateForAllDevicesOnce(smartHomeHandler: SmartHomeHandler, timeoutMs: number) {
   try {
     let configResponse = await getState(axiosInstance);
     if (configResponse.status != 200) {
@@ -270,34 +265,37 @@ async function reportStateForAllDevicesOnce(idToken: string, timeoutMs: number) 
       states[device.name] = device.googleQueryPayload(poolData);
     }
 
-    await reportState(idToken, states);
+    await reportState(await smartHomeHandler.getIdToken(), states);
   } catch (e) {
     logger.error("reportStateForAllDevicesOnce: %o", e);
   } finally {
-    setTimeout(() => reportStateForAllDevicesOnce(idToken, timeoutMs), timeoutMs);
+    setTimeout(async () => reportStateForAllDevicesOnce(smartHomeHandler, timeoutMs), timeoutMs);
   }
 }
 
-// On some interval update our internal database
-// with the changes from the pool that are relevant
-// to the assistant.
+// Report to the Google homegraph via our cloud function the state our devices.
 // NB: This structure a weird kind of JS thing, basically function sets
 // its own time out and then at the end of that it schedules itself.
-function ReportStateForAllDevicesContinuously(idToken: string, timeoutMs: number) {
+function ReportStateForAllDevicesContinuously(smartHomeHandler: SmartHomeHandler, timeoutMs: number) {
   try {
-    setTimeout(() => reportStateForAllDevicesOnce(idToken, timeoutMs), timeoutMs);
+    setTimeout(async () => reportStateForAllDevicesOnce(smartHomeHandler, timeoutMs), timeoutMs);
   } catch (error) {
     logger.error("updatePoolData: Unexpected failure: %o", error);
   }
 }
 
+// Helper class that manages the user state.
 class SmartHomeHandler {
   uid: string;
-  idToken: string;
+  user: FirebaseUser.User;
 
-  constructor(uid: string, idToken: string) {
+  constructor(uid: string, user: FirebaseUser.User) {
     this.uid = uid;
-    this.idToken = idToken;
+    this.user = user;
+  }
+
+  async getIdToken() {
+    return await this.user.getIdToken();
   }
 
   static async Initialize(refreshToken: string): Promise<SmartHomeHandler> {
@@ -312,8 +310,6 @@ class SmartHomeHandler {
     };
 
     FirebaseUser.initializeApp(firebaseConfig);
-
-//    const refreshToken = "1//04Z_diN0Sm6j2CgYIARAAGAQSNwF-L9IrI05stpOIsbb5hyb6eZBGjJ-1LbA7dsnB45-c8kw-rvmctsyO2Tc9__OmVYFQr7bkB_o";
 
     const tokenResponse = await axios.post(
       'https://us-central1-pool-eb7ed.cloudfunctions.net/getAccessTokenFromRefreshToken',
@@ -332,19 +328,23 @@ class SmartHomeHandler {
       throw new Error("Couldn't get firebase uid.");
     }
 
-    return new SmartHomeHandler(userCredential.user?.uid, await userCredential.user.getIdToken())
+    return new SmartHomeHandler(userCredential.user?.uid, userCredential.user);
   }
 }
 
 var gSmartHomeHandler: SmartHomeHandler;
+const gConfiguration = require('./config.json');
+
+export const axiosInstance: AxiosInstance = axios.create({
+  baseURL: 'http://poolpi:4200/',
+  timeout: 10000,
+});
 
 async function main() {
-  const configuration = require('./config.json');
-
-  gSmartHomeHandler = await SmartHomeHandler.Initialize(configuration.refreshToken);
+  gSmartHomeHandler = await SmartHomeHandler.Initialize(gConfiguration.refreshToken);
   await InitializeDeviceManager();
   StartRpcQueueListener(gSmartHomeHandler.uid);
-  ReportStateForAllDevicesContinuously(gSmartHomeHandler.idToken, 10000);
+  ReportStateForAllDevicesContinuously(gSmartHomeHandler, 10000);
 }
 
 main().catch(error => console.error(error));

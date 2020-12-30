@@ -281,8 +281,7 @@ exports.requestsync = Functions.https.onRequest(async (request, response) => {
   }
 });
 
-
-// Report tate to the homegraph.
+// Report state to the homegraph.
 // states is essentially a deviceId key'd version of the state of
 // the device. Thate state of the device is identical
 // to the "query" intent response.
@@ -449,7 +448,8 @@ exports.getRefreshTokenFromLinkCode = Functions.https.onRequest(async (request: 
   response.status(HTTP_STATUS_OK).json({ refreshToken: refreshToken });
 });
 
-// Return an access token given a refreshToken.
+// Return an access token (i.e. idToken) given a refreshToken for the Coolio Poolio Google Credential client that represents
+// the users who may access to Coolio Poolio (NOT the Google Assistant.)
 exports.getAccessTokenFromRefreshToken = Functions.https.onRequest(async (request: Functions.https.Request, response: Functions.Response<any>) => {
   const refreshToken = request.body.refreshToken;
   const HTTP_STATUS_OK = 200;
@@ -475,7 +475,7 @@ exports.getAccessTokenFromRefreshToken = Functions.https.onRequest(async (reques
       })
 
     if (tokenResponse.status !== HTTP_STATUS_OK) {
-      throw Error("Bad response from oauth.")
+      throw Error("Bad response from oauth: " + tokenResponse.data);
     }
 
     Functions.logger.info("Successfully got access token");
@@ -488,17 +488,35 @@ exports.getAccessTokenFromRefreshToken = Functions.https.onRequest(async (reques
 
 
 
-/*
-  query: {
-    redirect_uri: 'https://oauth-redirect.googleusercontent.com/r/pool-eb7ed',
-    client_id: '976362647969-nqiiu6du58ejgebdgomkppi48rtum23rd.apps.googleusercontent.com',
-    response_type: 'code',
-    state: 'ABdO3MWl9GwopgbAu1ytsdlMKj79VewO0kyu49ZfSy4ntwVsBxWYckBmxfa6fawPmEVOea2aE20lsVk_f1BzxjEFG_SjlhXq7fQc9VuuqDWQDCWp-A7txswwmUpr1LmYKVoocBe7di0UACcbhuQpGJvSlL0hrC0N33ehvZEWXtZCNesdL62AK5HonUBVur1y4ewgKz6FQevqkiLm8QE68SNmql6eLCl82nnDLb6UuwxTTeG3LyTQ_ev2BizDNd_l9SKOee6cnnvA-qdo252jLQH65jHdI2L2CSLrNWLqipCl4TI256QFwdCoL2-uVatiK7n3lvkh5h_P5b3evxVKiyjervtncGBVx_DLyGz0ABFpHmF3xfd2k32KkNJXMQeNVCT0wetCkryACYIQzA5MgnGWkic_fHlqybqttSL1BScVf82URs_sejsBKI1PJAtrj_4zZ-WRBrZjj9Ld6LYYDX_-YJaKwKkBLVc9HsZyd77Inf3OjFTnT7CYLF3iylqrvWx6vmTiy0oQQdxO3xoM1MVwI7KU_0qnuw',
-    user_locale: 'en-US'
-  },*/
+
+// Authorize the Actions by Google user to pose as the Firebase user which is authorized to
+// make changes to your pool. 
+//
+// Logically think of oauthAuthorize as a function that safely allows a coolio polio user 
+// to allow Google Actions to know and act as them by their coolio poolio uid.
+//
+// They way this happens is that
+// 1. Google Assistant sends the user to a URL that we configured in the Google Action Console (/oauthAuthorize) and requests that
+//    we redirect the user back to the passed in query parameter redirect_uri and attach a code, from which we can 
+// 2. We show NB: Confusingly we allow the user to log into coolio poolio only with their google id.
+// 3. Since a coolio poolio user logs in to coolio poolio via thier Google account, this login page looks like "Login with Google page"
+// 4. Once the user is logged in to coolio poolio, we now can get the coolio poolio uid.
+// 5. We then redirect user back to /oauthAuthorize, this time with a query parameter set to the user uid. (e.g. uid=FDJKFDJKDFJK)
+// 6. Now that we have the uid we need to generate an tokenized version of it which we do by a Javscript web token (JWT)
+// 7. Finally we redirect the user to the redirect_uri with code set to the JWT.
+//
+// Example query parameters in (1), the initial request to o
+//  query: {
+//    redirect_uri: 'https://oauth-redirect.googleusercontent.com/r/pool-eb7ed',
+//    client_id: '976362647969-nqiiu6du58ejgebdgomkppi48rtum23rd.apps.googleusercontent.com',
+//    response_type: 'code',
+//    state: 'ABdO3MWl9GwopgbAu1ytsdlMKj79VewO0kyu49ZfSy4ntwVsBxWYckBmxfa6fawPmEVOea2aE20lsVk_f1BzxjEFG_SjlhXq7fQc9VuuqDWQDCWp-A7txswwmUpr1LmYKVoocBe7di0UACcbhuQpGJvSlL0hrC0N33ehvZEWXtZCNesdL62AK5HonUBVur1y4ewgKz6FQevqkiLm8QE68SNmql6eLCl82nnDLb6UuwxTTeG3LyTQ_ev2BizDNd_l9SKOee6cnnvA-qdo252jLQH65jHdI2L2CSLrNWLqipCl4TI256QFwdCoL2-uVatiK7n3lvkh5h_P5b3evxVKiyjervtncGBVx_DLyGz0ABFpHmF3xfd2k32KkNJXMQeNVCT0wetCkryACYIQzA5MgnGWkic_fHlqybqttSL1BScVf82URs_sejsBKI1PJAtrj_4zZ-WRBrZjj9Ld6LYYDX_-YJaKwKkBLVc9HsZyd77Inf3OjFTnT7CYLF3iylqrvWx6vmTiy0oQQdxO3xoM1MVwI7KU_0qnuw',
+//    user_locale: 'en-US'
+// }
 exports.oauthAuthorize = Functions.https.onRequest(async (request: Functions.https.Request, response: Functions.Response<any>) => {
   const uid = request.query.uid;
   const client_id = request.query.client_id;
+  // This comes from the Google Actions console this is the client_id of the auth entity that represents the Google Actions client (for our devices)
   assert(client_id === '976362647969-nqiiu6du58ejgebdgomkppi48rtum23rd.apps.googleusercontent.com');
   const redirect_uri:string = request.query.redirect_uri as string;
   assert(redirect_uri.endsWith('r/pool-eb7ed'));
@@ -507,7 +525,7 @@ exports.oauthAuthorize = Functions.https.onRequest(async (request: Functions.htt
   assert(response_type === 'code');
 
   if (uid) {
-     // we already went through login so just create a code and me on our way
+     // we already went through login so just create a code and sned the user on their way
     const code: AuthorizationCodeContents = {
        uid: uid as string,
      }
@@ -522,7 +540,6 @@ exports.oauthAuthorize = Functions.https.onRequest(async (request: Functions.htt
     finalRedirectUrl.searchParams.set("code", signature);
     finalRedirectUrl.searchParams.set("state", state as string);
 
-    Functions.logger.info("Sending to: %s", finalRedirectUrl);
     response.redirect(finalRedirectUrl.href);
   } else {
   response.status(200).send(`<html>
@@ -627,8 +644,6 @@ exports.oauthAuthorize = Functions.https.onRequest(async (request: Functions.htt
      *    out, and that is where we update the UI.
      */
     function initApp() {
-      // TODO: Replace the following with your app's Firebase project configuration
-      // For Firebase JavaScript SDK v7.20.0 and later, measurementId is an optional field
       const firebaseConfig = {
         apiKey: "AIzaSyAYyEQZNdI8FULr0oNbPn9DZBt4oD0sRo0",
         authDomain: "pool-eb7ed.firebaseapp.com",
