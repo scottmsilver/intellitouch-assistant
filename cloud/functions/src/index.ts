@@ -575,12 +575,12 @@ exports.oauthAuthorize = Functions.https.onRequest(async (request: Functions.htt
   const client_id = request.query.client_id;
 
   // FIX_ME change this to return an error response if these don't match.
-  assert(client_id === GOOGLE_ACTIONS_COOLIO_POOLIO_CLIENT_ID);
+  assert(client_id === GOOGLE_ACTIONS_COOLIO_POOLIO_CLIENT_ID, "incorrect client_id: " + client_id);
   const redirect_uri:string = request.query.redirect_uri as string;
-  assert(redirect_uri.endsWith('r/pool-eb7ed'));
+  assert(redirect_uri.endsWith('r/pool-eb7ed'), "invalid redirect uri: " + redirect_uri);
   const state = request.query.state;
   const response_type = request.query.response_type;
-  assert(response_type === 'code');
+  assert(response_type === 'code', "unhandled response_type: " + response_type);
 
   if (uid) {
      // we already went through login so just create a code and sned the user on their way
